@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Crypto Portfolio
+Comment=Suivi de portefeuille crypto
+Exec=gnome-terminal -- bash -c "cd /data/projects/crypto-portfolio && ./start.sh; read -p 'Press Enter to close...'"
+Icon=applications-utilities
+Terminal=false
+Categories=Finance;Utility;

@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Crypto Portfolio{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Cartes de résumé -->
+<div class="summary-cards">
+    <div class="stat-card">
+        <div class="label">Valeur totale</div>
+        <div class="value" id="total-value">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Total investi</div>
+        <div class="value" id="total-invested">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">P&L Total</div>
+        <div class="value" id="total-pnl">--</div>
+        <div class="change" id="total-pnl-pct">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Nombre de positions</div>
+        <div class="value" id="holdings-count">--</div>
+    </div>
+</div>
+
+<!-- Graphique évolution historique -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Évolution du portefeuille</h3>
+        <div class="period-selector">
+            <button class="period-btn" data-period="7" onclick="loadHistory(7)">7j</button>
+            <button class="period-btn active" data-period="30" onclick="loadHistory(30)">30j</button>
+            <button class="period-btn" data-period="90" onclick="loadHistory(90)">90j</button>
+            <button class="period-btn" data-period="365" onclick="loadHistory(365)">1an</button>
+            <button class="period-btn" data-period="all" onclick="loadHistory('all')">Tout</button>
+        </div>
+    </div>
+    <div class="chart-container" style="height: 300px;">
+        <canvas id="history-chart"></canvas>
+    </div>
+</div>
+
+<!-- Graphiques et tableau -->
+<div class="grid grid-2">
+    <!-- Graphique répartition -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Répartition du portefeuille</h3>
+        </div>
+        <div class="chart-container">
+            <canvas id="allocation-chart"></canvas>
+        </div>
+    </div>
+
+    <!-- Actions rapides -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Actions rapides</h3>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+            <a href="/transactions" class="btn btn-secondary" onclick="showAddTransactionModal(); return false;">
+                + Ajouter une transaction
+            </a>
+            <a href="/import" class="btn btn-secondary">
+                📥 Importer des fichiers
+            </a>
+            <a href="/strategies" class="btn btn-secondary">
+                🎯 Gérer les stratégies
+            </a>
+            <button class="btn btn-secondary" onclick="exportPortfolio()">
+                📤 Exporter le portefeuille
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Tableau des positions -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Positions</h3>
+        <a href="/transactions" class="btn btn-sm btn-secondary">Voir les transactions</a>
+    </div>
+    <div class="table-container" id="holdings-container">
+        <table class="holdings-table">
+            <thead>
+                <tr>
+                    <th>Crypto</th>
+                    <th class="text-right">Volume</th>
+                    <th class="text-right">Avg Weighted Cost</th>
+                    <th class="text-right">Cours actuel</th>
+                    <th class="text-right">Valeur</th>
+                    <th class="text-right">P&L</th>
+                    <th class="text-right">P&L %</th>
+                    <th class="text-center">Exchange</th>
+                </tr>
+            </thead>
+            <tbody id="holdings-tbody">
+                <tr>
+                    <td colspan="8" class="text-center">
+                        <div class="loading"><div class="spinner"></div></div>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Charger le dashboard complet au démarrage
+document.addEventListener('DOMContentLoaded', async () => {
+    await loadDashboard();
+
+    // Mettre à jour le compteur de positions
+    try {
+        const holdings = await apiCall('/holdings');
+        document.getElementById('holdings-count').textContent = holdings.length;
+    } catch (e) {
+        document.getElementById('holdings-count').textContent = '0';
+    }
+});
+
+function exportPortfolio() {
+    window.location.href = '/api/export/transactions?format=csv';
+}
+</script>
+{% endblock %}

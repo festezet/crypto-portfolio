@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Crypto Portfolio Tracker{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <h1>Crypto Portfolio</h1>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item {% if request.path == '/' %}active{% endif %}">
+                <a href="/">
+                    <span class="icon">📊</span>
+                    <span>Dashboard</span>
+                </a>
+            </li>
+            <li class="nav-item {% if request.path == '/transactions' %}active{% endif %}">
+                <a href="/transactions">
+                    <span class="icon">📝</span>
+                    <span>Transactions</span>
+                </a>
+            </li>
+            <li class="nav-item {% if request.path == '/strategies' %}active{% endif %}">
+                <a href="/strategies">
+                    <span class="icon">🎯</span>
+                    <span>Stratégies</span>
+                </a>
+            </li>
+            <li class="nav-item {% if request.path == '/fiscal' %}active{% endif %}">
+                <a href="/fiscal">
+                    <span class="icon">📋</span>
+                    <span>Fiscal</span>
+                </a>
+            </li>
+            <li class="nav-item {% if request.path == '/import' %}active{% endif %}">
+                <a href="/import">
+                    <span class="icon">📥</span>
+                    <span>Import</span>
+                </a>
+            </li>
+            <li class="nav-item {% if request.path == '/settings' %}active{% endif %}">
+                <a href="/settings">
+                    <span class="icon">⚙️</span>
+                    <span>Paramètres</span>
+                </a>
+            </li>
+        </ul>
+        <div class="sidebar-footer">
+            <div class="update-status">
+                <span id="last-update">Dernière MàJ: --:--</span>
+            </div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        <header class="top-bar">
+            <div class="page-title">
+                <h2>{% block page_title %}Dashboard{% endblock %}</h2>
+            </div>
+            <div class="top-actions">
+                <button id="btn-refresh" class="btn btn-icon" title="Rafraîchir">🔄</button>
+                <div class="alerts-indicator" id="alerts-indicator" style="display: none;">
+                    <span class="badge" id="alerts-count">0</span>
+                    <span>Alertes</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="content">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <div id="modal-overlay" class="modal-overlay" style="display: none;">
+        <div class="modal" id="modal">
+            <div class="modal-header">
+                <h3 id="modal-title">Modal</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+            </div>
+            <div class="modal-footer" id="modal-footer">
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

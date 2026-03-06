@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Paramètres - Crypto Portfolio{% endblock %}
+{% block page_title %}Paramètres{% endblock %}
+
+{% block content %}
+<div class="grid grid-2">
+    <!-- Configuration API -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">🔑 Clés API (optionnel)</h3>
+        </div>
+        <p style="color: var(--text-muted); margin-bottom: 20px; font-size: 0.9rem;">
+            Les clés API permettent de récupérer automatiquement vos transactions.
+            Utilisez des clés en lecture seule uniquement.
+        </p>
+
+        <h4 style="margin-bottom: 15px;">Binance</h4>
+        <div class="form-group">
+            <label>API Key</label>
+            <input type="text" id="binance-api-key" placeholder="Votre clé API Binance">
+        </div>
+        <div class="form-group">
+            <label>API Secret</label>
+            <input type="password" id="binance-api-secret" placeholder="Votre secret API Binance">
+        </div>
+
+        <h4 style="margin: 20px 0 15px;">Kucoin</h4>
+        <div class="form-group">
+            <label>API Key</label>
+            <input type="text" id="kucoin-api-key" placeholder="Votre clé API Kucoin">
+        </div>
+        <div class="form-group">
+            <label>API Secret</label>
+            <input type="password" id="kucoin-api-secret" placeholder="Votre secret API Kucoin">
+        </div>
+        <div class="form-group">
+            <label>Passphrase</label>
+            <input type="password" id="kucoin-passphrase" placeholder="Votre passphrase Kucoin">
+        </div>
+
+        <button class="btn btn-primary" onclick="saveApiKeys()">Enregistrer les clés</button>
+        <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 10px;">
+            ⚠️ Les clés sont stockées localement. Ne partagez jamais vos clés API.
+        </p>
+    </div>
+
+    <!-- Préférences -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">⚙️ Préférences</h3>
+        </div>
+
+        <div class="form-group">
+            <label>Devise de référence</label>
+            <select id="base-currency">
+                <option value="EUR" selected>Euro (EUR)</option>
+                <option value="USD">Dollar US (USD)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Méthode de calcul fiscal</label>
+            <select id="fiscal-method">
+                <option value="FIFO" selected>FIFO (First In, First Out)</option>
+                <option value="LIFO" disabled>LIFO (Last In, First Out) - Bientôt</option>
+                <option value="PMP" disabled>Prix Moyen Pondéré - Bientôt</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Intervalle de mise à jour des prix</label>
+            <select id="price-interval">
+                <option value="30">30 secondes</option>
+                <option value="60" selected>1 minute</option>
+                <option value="300">5 minutes</option>
+            </select>
+        </div>
+
+        <button class="btn btn-primary" onclick="savePreferences()">Enregistrer</button>
+    </div>
+</div>
+
+<!-- Gestion des données -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">💾 Gestion des données</h3>
+    </div>
+
+    <div class="grid grid-3">
+        <div>
+            <h4 style="margin-bottom: 10px;">Sauvegarde</h4>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">
+                Exportez toutes vos données pour les sauvegarder
+            </p>
+            <button class="btn btn-secondary" onclick="exportAllData()">
+                📤 Exporter tout
+            </button>
+        </div>
+
+        <div>
+            <h4 style="margin-bottom: 10px;">Restauration</h4>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">
+                Restaurez vos données depuis une sauvegarde
+            </p>
+            <button class="btn btn-secondary" onclick="importBackup()">
+                📥 Importer sauvegarde
+            </button>
+        </div>
+
+        <div>
+            <h4 style="margin-bottom: 10px; color: var(--danger);">Danger Zone</h4>
+            <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 15px;">
+                Supprimer toutes les données
+            </p>
+            <button class="btn btn-danger" onclick="confirmDeleteAll()">
+                🗑️ Tout supprimer
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- À propos -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">ℹ️ À propos</h3>
+    </div>
+    <div style="color: var(--text-secondary);">
+        <p><strong>Crypto Portfolio Tracker</strong> v1.0</p>
+        <p style="margin-top: 10px;">
+            Application de suivi de portefeuille crypto avec :
+        </p>
+        <ul style="margin-left: 20px; margin-top: 10px;">
+            <li>Suivi multi-exchanges (Binance, Kucoin)</li>
+            <li>Calcul des plus-values (méthode FIFO)</li>
+            <li>Stratégies de sortie automatisées</li>
+            <li>Rapport fiscal pour déclaration</li>
+        </ul>
+        <p style="margin-top: 15px; font-size: 0.85rem; color: var(--text-muted);">
+            Développé pour un usage personnel. Les données restent locales.
+        </p>
+    </div>
+</div>
+
+<script>
+function saveApiKeys() {
+    // Les clés API seraient stockées côté serveur via une API dédiée
+    // Pour l'instant, stockage local (non sécurisé, juste pour démo)
+    const keys = {
+        binance: {
+            key: document.getElementById('binance-api-key').value,
+            secret: document.getElementById('binance-api-secret').value
+        },
+        kucoin: {
+            key: document.getElementById('kucoin-api-key').value,
+            secret: document.getElementById('kucoin-api-secret').value,
+            passphrase: document.getElementById('kucoin-passphrase').value
+        }
+    };
+
+    localStorage.setItem('api_keys', JSON.stringify(keys));
+    showToast('Clés API enregistrées', 'success');
+}
+
+function savePreferences() {
+    const prefs = {
+        baseCurrency: document.getElementById('base-currency').value,
+        fiscalMethod: document.getElementById('fiscal-method').value,
+        priceInterval: document.getElementById('price-interval').value
+    };
+
+    localStorage.setItem('preferences', JSON.stringify(prefs));
+    showToast('Préférences enregistrées', 'success');
+}
+
+function exportAllData() {
+    window.location.href = '/api/export/transactions?format=json';
+}
+
+function importBackup() {
+    // Créer un input file dynamique
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            showToast('Import en cours...', 'info');
+            // Implémenter l'import
+        }
+    };
+    input.click();
+}
+
+function confirmDeleteAll() {
+    if (!confirm('⚠️ ATTENTION: Cette action supprimera TOUTES vos données.\n\nÊtes-vous sûr ?')) {
+        return;
+    }
+    if (!confirm('Dernière confirmation: Voulez-vous vraiment tout supprimer ?')) {
+        return;
+    }
+
+    showToast('Cette fonctionnalité n\'est pas encore implémentée', 'warning');
+}
+
+// Charger les préférences existantes
+document.addEventListener('DOMContentLoaded', () => {
+    const prefs = JSON.parse(localStorage.getItem('preferences') || '{}');
+    if (prefs.baseCurrency) document.getElementById('base-currency').value = prefs.baseCurrency;
+    if (prefs.fiscalMethod) document.getElementById('fiscal-method').value = prefs.fiscalMethod;
+    if (prefs.priceInterval) document.getElementById('price-interval').value = prefs.priceInterval;
+});
+</script>
+{% endblock %}

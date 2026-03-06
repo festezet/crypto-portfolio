@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}Rapport Fiscal - Crypto Portfolio{% endblock %}
+{% block page_title %}Rapport Fiscal{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Calcul des plus-values</h3>
+        <div style="display: flex; gap: 10px; align-items: center;">
+            <select id="fiscal-year" style="width: auto;">
+                <!-- Généré dynamiquement -->
+            </select>
+            <button class="btn btn-primary" onclick="loadFiscalReport()">Calculer</button>
+        </div>
+    </div>
+
+    <!-- Résumé -->
+    <div class="grid grid-4" style="margin-bottom: 20px;" id="fiscal-summary">
+        <div class="stat-card">
+            <div class="label">Plus-values brutes</div>
+            <div class="value positive" id="total-gains">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Moins-values</div>
+            <div class="value negative" id="total-losses">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Résultat net</div>
+            <div class="value" id="net-gain">--</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Cessions</div>
+            <div class="value" id="sales-count">--</div>
+        </div>
+    </div>
+
+    <!-- Exports -->
+    <div style="margin-bottom: 20px;">
+        <button class="btn btn-secondary" onclick="exportFiscalCSV()">📥 Exporter CSV</button>
+        <button class="btn btn-secondary" onclick="exportFiscalText()">📄 Exporter rapport texte</button>
+    </div>
+</div>
+
+<!-- Détail par crypto -->
+<div class="card" id="fiscal-details">
+    <div class="card-header">
+        <h3 class="card-title">Détail des cessions par crypto</h3>
+    </div>
+    <div id="crypto-details">
+        <p style="color: var(--text-muted); text-align: center; padding: 20px;">
+            Sélectionnez une année et cliquez sur "Calculer" pour voir le rapport fiscal
+        </p>
+    </div>
+</div>
+
+<!-- Informations fiscales -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">📋 Informations fiscales</h3>
+    </div>
+    <div style="color: var(--text-secondary);">
+        <h4 style="margin-bottom: 10px;">Méthode de calcul : FIFO</h4>
+        <p style="margin-bottom: 15px;">
+            La méthode FIFO (First In, First Out) considère que les premiers actifs achetés
+            sont les premiers vendus. C'est la méthode standard en France pour le calcul
+            des plus-values sur actifs numériques.
+        </p>
+
+        <h4 style="margin-bottom: 10px;">Déclaration en France</h4>
+        <ul style="margin-left: 20px; margin-bottom: 15px;">
+            <li>Les plus-values sur actifs numériques sont imposables à 30% (flat tax)</li>
+            <li>Déclaration via le formulaire 2086</li>
+            <li>Obligation de déclarer les comptes détenus à l'étranger (Binance, Kucoin...)</li>
+        </ul>
+
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+            ⚠️ Ces informations sont fournies à titre indicatif. Consultez un professionnel
+            pour votre situation fiscale personnelle.
+        </p>
+    </div>
+</div>
+
+<script>
+// Générer les années disponibles
+function populateYears() {
+    const select = document.getElementById('fiscal-year');
+    const currentYear = new Date().getFullYear();
+
+    for (let year = currentYear; year >= 2017; year--) {
+        const option = document.createElement('option');
+        option.value = year;
+        option.textContent = year;
+        select.appendChild(option);
+    }
+}
+
+async function loadFiscalReport() {
+    const year = document.getElementById('fiscal-year').value;
+
+    try {
+        showLoading('crypto-details');
+        const data = await apiCall(`/fiscal/${year}`);
+
+        // Mettre à jour le résumé
+        document.getElementById('total-gains').textContent = formatCurrency(data.total_gains);
+        document.getElementById('total-losses').textContent = formatCurrency(data.total_losses);
+
+        const netEl = document.getElementById('net-gain');
+        netEl.textContent = formatCurrency(data.net_gain);
+        netEl.className = `value ${getColorClass(data.net_gain)}`;
+
+        document.getElementById('sales-count').textContent = data.sales_count;
+
+        // Afficher le détail par crypto
+        const cryptoDetails = document.getElementById('crypto-details');
+
+        if (data.sales_count === 0) {
+            cryptoDetails.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">📭</div>
+                    <h3>Aucune cession en ${year}</h3>
+                    <p>Vous n'avez pas vendu de cryptomonnaies cette année.</p>
+                </div>
+            `;
+            return;
+        }
+
+        let html = '';
+        for (const [symbol, cryptoData] of Object.entries(data.gains_by_crypto)) {
+            if (cryptoData.sales.length === 0) continue;
+
+            const summary = cryptoData.summary;
+            html += `
+                <div style="margin-bottom: 30px;">
+                    <h4 style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
+                        <span class="crypto-icon">${getCryptoIcon(symbol)}</span>
+                        ${symbol}
+                        <span class="${getColorClass(summary.total_gain)}" style="margin-left: auto;">
+                            ${formatCurrency(summary.total_gain)}
+                        </span>
+                    </h4>
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th class="text-right">Volume</th>
+                                <th class="text-right">Prix de vente</th>
+                                <th class="text-right">Produit</th>
+                                <th class="text-right">Coût acq.</th>
+                                <th class="text-right">Frais</th>
+                                <th class="text-right">Plus-value</th>
+                                <th class="text-right">Durée</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${cryptoData.sales.map(sale => `
+                                <tr>
+                                    <td>${formatDate(sale.date)}</td>
+                                    <td class="text-right">${formatNumber(sale.volume, 6)}</td>
+                                    <td class="text-right">${formatCurrency(sale.sale_price)}</td>
+                                    <td class="text-right">${formatCurrency(sale.proceeds)}</td>
+                                    <td class="text-right">${formatCurrency(sale.cost_basis)}</td>
+                                    <td class="text-right">${formatCurrency(sale.total_fees)}</td>
+                                    <td class="text-right ${getColorClass(sale.gain)}">
+                                        ${formatCurrency(sale.gain)}
+                                        <div style="font-size: 0.8rem;">${formatPercent(sale.gain_pct)}</div>
+                                    </td>
+                                    <td class="text-right">${sale.holding_period_days}j</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                        <tfoot>
+                            <tr style="font-weight: bold; border-top: 2px solid var(--border-color);">
+                                <td>Total</td>
+                                <td class="text-right">${formatNumber(summary.total_volume_sold, 6)}</td>
+                                <td></td>
+                                <td class="text-right">${formatCurrency(summary.total_proceeds)}</td>
+                                <td class="text-right">${formatCurrency(summary.total_cost_basis)}</td>
+                                <td class="text-right">${formatCurrency(summary.total_fees)}</td>
+                                <td class="text-right ${getColorClass(summary.total_gain)}">
+                                    ${formatCurrency(summary.total_gain)}
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            `;
+        }
+
+        cryptoDetails.innerHTML = html;
+
+    } catch (error) {
+        showToast('Erreur de calcul', 'error');
+    }
+}
+
+function exportFiscalCSV() {
+    const year = document.getElementById('fiscal-year').value;
+    window.location.href = `/api/fiscal/${year}/export?format=csv`;
+}
+
+function exportFiscalText() {
+    const year = document.getElementById('fiscal-year').value;
+    window.location.href = `/api/fiscal/${year}/export?format=text`;
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    populateYears();
+});
+</script>
+{% endblock %}

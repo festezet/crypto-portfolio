@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block title %}Import - Crypto Portfolio{% endblock %}
+{% block page_title %}Importer des transactions{% endblock %}
+
+{% block content %}
+<div class="grid grid-2">
+    <!-- Zone d'upload -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Importer un fichier</h3>
+        </div>
+
+        <div class="form-group">
+            <label>Source</label>
+            <select id="import-source">
+                <option value="auto">Détection automatique</option>
+                <option value="binance">Binance</option>
+                <option value="kucoin">Kucoin</option>
+                <option value="manual">Format personnalisé</option>
+            </select>
+        </div>
+
+        <div class="file-upload" id="drop-zone">
+            <input type="file" id="file-input" accept=".csv,.txt">
+            <div class="icon" style="font-size: 3rem;">📁</div>
+            <p style="margin: 15px 0;">Glissez-déposez votre fichier ici</p>
+            <p style="color: var(--text-muted);">ou cliquez pour sélectionner</p>
+            <p style="font-size: 0.8rem; margin-top: 10px; color: var(--text-muted);">
+                Formats acceptés : CSV
+            </p>
+        </div>
+
+        <div id="import-result" style="margin-top: 20px;"></div>
+    </div>
+
+    <!-- Instructions -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title">Comment exporter vos transactions</h3>
+        </div>
+
+        <h4 style="margin-bottom: 10px;">📊 Binance</h4>
+        <ol style="margin-left: 20px; margin-bottom: 20px; color: var(--text-secondary);">
+            <li>Connectez-vous à Binance</li>
+            <li>Allez dans Ordres > Historique des trades</li>
+            <li>Cliquez sur "Exporter"</li>
+            <li>Sélectionnez la période souhaitée</li>
+            <li>Téléchargez le fichier CSV</li>
+        </ol>
+
+        <h4 style="margin-bottom: 10px;">📊 Kucoin</h4>
+        <ol style="margin-left: 20px; margin-bottom: 20px; color: var(--text-secondary);">
+            <li>Connectez-vous à Kucoin</li>
+            <li>Allez dans Ordres > Historique des transactions</li>
+            <li>Cliquez sur "Exporter"</li>
+            <li>Choisissez le format CSV</li>
+            <li>Téléchargez le fichier</li>
+        </ol>
+
+        <h4 style="margin-bottom: 10px;">📝 Format personnalisé</h4>
+        <p style="color: var(--text-secondary); margin-bottom: 10px;">
+            Votre fichier CSV doit contenir les colonnes suivantes :
+        </p>
+        <pre style="background: var(--bg-dark); padding: 15px; border-radius: var(--border-radius); font-size: 0.85rem; overflow-x: auto;">
+Date,Type,Symbol,Volume,Price,Fee
+2024-01-15,BUY,BTC,0.5,40000,10
+2024-02-20,SELL,BTC,0.1,45000,5</pre>
+    </div>
+</div>
+
+<!-- Historique des imports -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Transactions récentes</h3>
+    </div>
+    <div id="recent-transactions">
+        <p style="color: var(--text-muted); text-align: center; padding: 20px;">
+            Les transactions importées apparaîtront ici
+        </p>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    setupFileUpload();
+    loadRecentTransactions();
+});
+
+async function loadRecentTransactions() {
+    try {
+        const result = await apiCall('/transactions?limit=10');
+        if (result.transactions.length > 0) {
+            document.getElementById('recent-transactions').innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Type</th>
+                            <th>Crypto</th>
+                            <th class="text-right">Volume</th>
+                            <th class="text-right">Prix</th>
+                            <th>Source</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${result.transactions.map(tx => `
+                            <tr>
+                                <td>${formatDateTime(tx.date)}</td>
+                                <td><span class="badge ${tx.type === 'BUY' ? 'badge-success' : 'badge-danger'}">${tx.type}</span></td>
+                                <td>${tx.crypto_symbol}</td>
+                                <td class="text-right">${formatNumber(tx.volume, 6)}</td>
+                                <td class="text-right">${formatCurrency(tx.price)}</td>
+                                <td><span class="tag">${tx.exchange}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+    } catch (error) {
+        console.error('Error loading transactions:', error);
+    }
+}
+</script>
+{% endblock %}

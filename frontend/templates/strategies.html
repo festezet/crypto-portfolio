@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+
+{% block title %}Stratégies - Crypto Portfolio{% endblock %}
+{% block page_title %}Stratégies de sortie{% endblock %}
+
+{% block content %}
+<!-- Alertes en attente -->
+<div id="alerts-section" style="display: none;">
+    <div class="card" style="border-color: var(--warning);">
+        <div class="card-header">
+            <h3 class="card-title">⚠️ Alertes en attente</h3>
+        </div>
+        <div id="alerts-list"></div>
+    </div>
+</div>
+
+<!-- Résumé -->
+<div class="grid grid-4" style="margin-bottom: 20px;">
+    <div class="stat-card">
+        <div class="label">Stratégies actives</div>
+        <div class="value" id="active-strategies">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Seuils déclenchés</div>
+        <div class="value" id="triggered-count">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Alertes en attente</div>
+        <div class="value" id="pending-alerts">--</div>
+    </div>
+    <div class="stat-card">
+        <div class="label">Capital récupéré</div>
+        <div class="value" id="capital-recovered">--</div>
+    </div>
+</div>
+
+<!-- Actions -->
+<div style="margin-bottom: 20px;">
+    <button class="btn btn-primary" onclick="showAddStrategyModal()">+ Nouvelle stratégie</button>
+    <button class="btn btn-secondary" onclick="checkAllStrategies()">🔄 Vérifier les seuils</button>
+</div>
+
+<!-- Liste des stratégies -->
+<div id="strategies-container">
+    <div class="loading"><div class="spinner"></div></div>
+</div>
+
+<script>
+async function loadStrategies() {
+    try {
+        const [strategies, alerts] = await Promise.all([
+            apiCall('/strategies'),
+            apiCall('/alerts')
+        ]);
+
+        // Mettre à jour les stats
+        document.getElementById('active-strategies').textContent =
+            strategies.filter(s => s.enabled).length;
+        document.getElementById('triggered-count').textContent =
+            strategies.reduce((sum, s) => sum + (s.triggered_thresholds?.length || 0), 0);
+        document.getElementById('pending-alerts').textContent = alerts.length;
+
+        // Afficher les alertes
+        if (alerts.length > 0) {
+            document.getElementById('alerts-section').style.display = 'block';
+            document.getElementById('alerts-list').innerHTML = alerts.map(a => `
+                <div class="threshold-item triggered" style="margin: 10px;">
+                    <div>
+                        <strong>${a.crypto_symbol}</strong> -
+                        Seuil ${a.threshold_pct}% atteint (${formatPercent(a.current_profit_pct)})
+                        <br>
+                        <small>Vendre ${formatNumber(a.volume_to_sell, 6)} pour ~${formatCurrency(a.estimated_value)}</small>
+                    </div>
+                    <div>
+                        <button class="btn btn-sm btn-success" onclick="executeAlert(${a.id})">Exécuter</button>
+                        <button class="btn btn-sm btn-secondary" onclick="dismissAlert(${a.id})">Ignorer</button>
+                    </div>
+                </div>
+            `).join('');
+        } else {
+            document.getElementById('alerts-section').style.display = 'none';
+        }
+
+        updateStrategiesTable(strategies);
+
+    } catch (error) {
+        showToast('Erreur de chargement', 'error');
+    }
+}
+
+async function checkAllStrategies() {
+    try {
+        const result = await apiCall('/strategies/check', { method: 'POST' });
+        showToast(`${result.new_alerts} nouvelle(s) alerte(s)`, 'info');
+        loadStrategies();
+    } catch (error) {
+        showToast('Erreur', 'error');
+    }
+}
+
+async function executeAlert(alertId) {
+    if (!confirm('Confirmer l\'exécution de cette alerte ?')) return;
+
+    try {
+        await apiCall(`/alerts/${alertId}/execute`, { method: 'POST' });
+        showToast('Vente enregistrée', 'success');
+        loadStrategies();
+    } catch (error) {
+        showToast('Erreur', 'error');
+    }
+}
+
+async function dismissAlert(alertId) {
+    try {
+        await apiCall(`/alerts/${alertId}/dismiss`, { method: 'POST' });
+        showToast('Alerte ignorée', 'info');
+        loadStrategies();
+    } catch (error) {
+        showToast('Erreur', 'error');
+    }
+}
+
+function showAddStrategyModal() {
+    const content = `
+        <form id="strategy-form">
+            <div class="form-group">
+                <label>Crypto (symbole)</label>
+                <input type="text" name="symbol" placeholder="BTC, ETH..." required>
+            </div>
+            <div class="form-group">
+                <label>Mode</label>
+                <select name="mode">
+                    <option value="alert">Alertes uniquement</option>
+                    <option value="semi-auto">Semi-automatique</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="enabled" checked>
+                    Activer immédiatement
+                </label>
+            </div>
+
+            <h4 style="margin: 20px 0 10px;">Seuils de sortie</h4>
+            <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px;">
+                Les seuils par défaut seront appliqués : +20%, +50%, +100%, +200%, +500%
+            </p>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="capital_recovery" checked>
+                    Récupérer le capital investi à +100%
+                </label>
+            </div>
+        </form>
+    `;
+
+    const footer = `
+        <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        <button class="btn btn-primary" onclick="saveStrategy()">Créer</button>
+    `;
+
+    openModal('Nouvelle Stratégie', content, footer);
+}
+
+async function saveStrategy() {
+    const form = document.getElementById('strategy-form');
+    const formData = new FormData(form);
+
+    const data = {
+        symbol: formData.get('symbol'),
+        mode: formData.get('mode'),
+        enabled: formData.has('enabled')
+    };
+
+    try {
+        await apiCall('/strategies', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        closeModal();
+        showToast('Stratégie créée', 'success');
+        loadStrategies();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadStrategies);
+</script>
+{% endblock %}

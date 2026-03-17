@@ -21,10 +21,31 @@ class PortfolioService:
         Returns:
             Liste des positions avec détails (volume, PMP, valorisation, P&L)
         """
-        # Récupérer toutes les transactions groupées par crypto
-        holdings = {}
-
         transactions = Transaction.query.order_by(Transaction.date.asc()).all()
+        holdings = self._compute_raw_holdings(transactions)
+
+        # Filtrer les positions avec un volume positif significatif
+        active_holdings = {
+            symbol: h for symbol, h in holdings.items()
+            if h['volume'] > 0.00000001
+        }
+
+        # Récupérer les prix actuels
+        symbols = list(active_holdings.keys())
+        prices = price_service.get_prices(symbols) if symbols else {}
+
+        # Construire le résultat avec valorisation
+        result = [
+            self._enrich_holding(symbol, h, prices)
+            for symbol, h in active_holdings.items()
+        ]
+
+        result.sort(key=lambda x: x['current_value'], reverse=True)
+        return result
+
+    def _compute_raw_holdings(self, transactions) -> Dict[str, Dict]:
+        """Calcule les holdings bruts a partir des transactions"""
+        holdings = {}
 
         for tx in transactions:
             symbol = tx.crypto.symbol
@@ -46,79 +67,54 @@ class PortfolioService:
             h['exchanges'].add(tx.exchange)
 
             if tx.is_buy:
-                # Achat : augmente le volume et le coût total
                 h['volume'] += tx.volume
                 h['total_cost'] += tx.total
                 h['total_fees'] += tx.fee or 0
-
                 if h['first_buy_date'] is None:
                     h['first_buy_date'] = tx.date
 
             elif tx.is_sell:
-                # Vente : diminue le volume proportionnellement
                 if h['volume'] > 0:
-                    # Calcul du coût proportionnel vendu
                     cost_per_unit = h['total_cost'] / h['volume'] if h['volume'] > 0 else 0
                     sold_cost = cost_per_unit * tx.volume
                     h['total_cost'] -= sold_cost
                     h['volume'] -= tx.volume
                     h['total_fees'] += tx.fee or 0
 
-        # Filtrer les positions avec un volume positif significatif
-        active_holdings = {
-            symbol: h for symbol, h in holdings.items()
-            if h['volume'] > 0.00000001  # Éviter les résidus de float
+        return holdings
+
+    def _enrich_holding(self, symbol, h, prices) -> Dict[str, Any]:
+        """Enrichit un holding brut avec prix, PMP et P&L"""
+        current_price = prices.get(symbol, 0)
+        volume = h['volume']
+        total_cost = h['total_cost']
+        total_fees = h['total_fees']
+
+        pmp = total_cost / volume if volume > 0 else 0
+        current_value = volume * current_price
+        pnl_brut = current_value - total_cost
+        pnl_net = pnl_brut - total_fees
+        pnl_pct = (pnl_brut / total_cost * 100) if total_cost > 0 else 0
+        change_24h = price_service.get_price_change_24h(symbol)
+
+        return {
+            'crypto_id': h['crypto_id'],
+            'symbol': symbol,
+            'name': h['name'],
+            'volume': round(volume, 8),
+            'pmp': round(pmp, 2),
+            'current_price': round(current_price, 2),
+            'total_invested': round(total_cost, 2),
+            'total_fees': round(total_fees, 2),
+            'current_value': round(current_value, 2),
+            'pnl_brut': round(pnl_brut, 2),
+            'pnl_net': round(pnl_net, 2),
+            'pnl_pct': round(pnl_pct, 2),
+            'change_24h': round(change_24h, 2) if change_24h else None,
+            'first_buy_date': h['first_buy_date'].isoformat() if h['first_buy_date'] else None,
+            'exchanges': list(h['exchanges']),
+            'transactions_count': h['transactions_count']
         }
-
-        # Récupérer les prix actuels
-        symbols = list(active_holdings.keys())
-        prices = price_service.get_prices(symbols) if symbols else {}
-
-        # Construire le résultat avec valorisation
-        result = []
-        for symbol, h in active_holdings.items():
-            current_price = prices.get(symbol, 0)
-            volume = h['volume']
-            total_cost = h['total_cost']
-            total_fees = h['total_fees']
-
-            # Prix moyen pondéré
-            pmp = total_cost / volume if volume > 0 else 0
-
-            # Valorisation actuelle
-            current_value = volume * current_price
-
-            # P&L
-            pnl_brut = current_value - total_cost
-            pnl_net = pnl_brut - total_fees
-            pnl_pct = (pnl_brut / total_cost * 100) if total_cost > 0 else 0
-
-            # Changement 24h
-            change_24h = price_service.get_price_change_24h(symbol)
-
-            result.append({
-                'crypto_id': h['crypto_id'],
-                'symbol': symbol,
-                'name': h['name'],
-                'volume': round(volume, 8),
-                'pmp': round(pmp, 2),
-                'current_price': round(current_price, 2),
-                'total_invested': round(total_cost, 2),
-                'total_fees': round(total_fees, 2),
-                'current_value': round(current_value, 2),
-                'pnl_brut': round(pnl_brut, 2),
-                'pnl_net': round(pnl_net, 2),
-                'pnl_pct': round(pnl_pct, 2),
-                'change_24h': round(change_24h, 2) if change_24h else None,
-                'first_buy_date': h['first_buy_date'].isoformat() if h['first_buy_date'] else None,
-                'exchanges': list(h['exchanges']),
-                'transactions_count': h['transactions_count']
-            })
-
-        # Trier par valorisation décroissante
-        result.sort(key=lambda x: x['current_value'], reverse=True)
-
-        return result
 
     def get_portfolio_summary(self) -> Dict[str, Any]:
         """

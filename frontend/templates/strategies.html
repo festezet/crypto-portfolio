@@ -45,7 +45,12 @@
     <div class="loading"><div class="spinner"></div></div>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/strategies.js') }}"></script>
 <script>
+// Override loadStrategies with page-specific version that also updates stats and alerts UI
 async function loadStrategies() {
     try {
         const [strategies, alerts] = await Promise.all([
@@ -53,14 +58,12 @@ async function loadStrategies() {
             apiCall('/alerts')
         ]);
 
-        // Mettre à jour les stats
         document.getElementById('active-strategies').textContent =
             strategies.filter(s => s.enabled).length;
         document.getElementById('triggered-count').textContent =
             strategies.reduce((sum, s) => sum + (s.triggered_thresholds?.length || 0), 0);
         document.getElementById('pending-alerts').textContent = alerts.length;
 
-        // Afficher les alertes
         if (alerts.length > 0) {
             document.getElementById('alerts-section').style.display = 'block';
             document.getElementById('alerts-list').innerHTML = alerts.map(a => `
@@ -72,7 +75,7 @@ async function loadStrategies() {
                         <small>Vendre ${formatNumber(a.volume_to_sell, 6)} pour ~${formatCurrency(a.estimated_value)}</small>
                     </div>
                     <div>
-                        <button class="btn btn-sm btn-success" onclick="executeAlert(${a.id})">Exécuter</button>
+                        <button class="btn btn-sm btn-success" onclick="executeAlert(${a.id})">Executer</button>
                         <button class="btn btn-sm btn-secondary" onclick="dismissAlert(${a.id})">Ignorer</button>
                     </div>
                 </div>
@@ -99,11 +102,11 @@ async function checkAllStrategies() {
 }
 
 async function executeAlert(alertId) {
-    if (!confirm('Confirmer l\'exécution de cette alerte ?')) return;
+    if (!confirm('Confirmer l\'execution de cette alerte ?')) return;
 
     try {
         await apiCall(`/alerts/${alertId}/execute`, { method: 'POST' });
-        showToast('Vente enregistrée', 'success');
+        showToast('Vente enregistree', 'success');
         loadStrategies();
     } catch (error) {
         showToast('Erreur', 'error');
@@ -113,7 +116,7 @@ async function executeAlert(alertId) {
 async function dismissAlert(alertId) {
     try {
         await apiCall(`/alerts/${alertId}/dismiss`, { method: 'POST' });
-        showToast('Alerte ignorée', 'info');
+        showToast('Alerte ignoree', 'info');
         loadStrategies();
     } catch (error) {
         showToast('Erreur', 'error');
@@ -137,19 +140,19 @@ function showAddStrategyModal() {
             <div class="form-group">
                 <label>
                     <input type="checkbox" name="enabled" checked>
-                    Activer immédiatement
+                    Activer immediatement
                 </label>
             </div>
 
             <h4 style="margin: 20px 0 10px;">Seuils de sortie</h4>
             <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 15px;">
-                Les seuils par défaut seront appliqués : +20%, +50%, +100%, +200%, +500%
+                Les seuils par defaut seront appliques : +20%, +50%, +100%, +200%, +500%
             </p>
 
             <div class="form-group">
                 <label>
                     <input type="checkbox" name="capital_recovery" checked>
-                    Récupérer le capital investi à +100%
+                    Recuperer le capital investi a +100%
                 </label>
             </div>
         </form>
@@ -157,10 +160,10 @@ function showAddStrategyModal() {
 
     const footer = `
         <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
-        <button class="btn btn-primary" onclick="saveStrategy()">Créer</button>
+        <button class="btn btn-primary" onclick="saveStrategy()">Creer</button>
     `;
 
-    openModal('Nouvelle Stratégie', content, footer);
+    openModal('Nouvelle Strategie', content, footer);
 }
 
 async function saveStrategy() {
@@ -179,7 +182,7 @@ async function saveStrategy() {
             body: JSON.stringify(data)
         });
         closeModal();
-        showToast('Stratégie créée', 'success');
+        showToast('Strategie creee', 'success');
         loadStrategies();
     } catch (error) {
         showToast(error.message, 'error');

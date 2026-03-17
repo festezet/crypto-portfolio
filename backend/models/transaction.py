@@ -81,39 +81,43 @@ class Transaction(db.Model):
         }
 
     @classmethod
-    def create_buy(cls, crypto_id, volume, price, date=None, exchange='manual',
-                   fee=0.0, fee_currency='EUR', notes=None, pair=None):
-        """Crée une transaction d'achat"""
+    def create_buy(cls, crypto_id, volume, price, **kwargs):
+        """Crée une transaction d'achat
+
+        kwargs: date, exchange, fee, fee_currency, notes, pair
+        """
         return cls(
-            date=date or datetime.utcnow(),
+            date=kwargs.get('date') or datetime.utcnow(),
             type=TransactionType.BUY.value,
-            exchange=exchange,
+            exchange=kwargs.get('exchange', 'manual'),
             crypto_id=crypto_id,
             volume=volume,
             price=price,
             total=volume * price,
-            fee=fee,
-            fee_currency=fee_currency,
-            notes=notes,
-            pair=pair
+            fee=kwargs.get('fee', 0.0),
+            fee_currency=kwargs.get('fee_currency', 'EUR'),
+            notes=kwargs.get('notes'),
+            pair=kwargs.get('pair')
         )
 
     @classmethod
-    def create_sell(cls, crypto_id, volume, price, date=None, exchange='manual',
-                    fee=0.0, fee_currency='EUR', notes=None, pair=None):
-        """Crée une transaction de vente"""
+    def create_sell(cls, crypto_id, volume, price, **kwargs):
+        """Crée une transaction de vente
+
+        kwargs: date, exchange, fee, fee_currency, notes, pair
+        """
         return cls(
-            date=date or datetime.utcnow(),
+            date=kwargs.get('date') or datetime.utcnow(),
             type=TransactionType.SELL.value,
-            exchange=exchange,
+            exchange=kwargs.get('exchange', 'manual'),
             crypto_id=crypto_id,
             volume=volume,
             price=price,
             total=volume * price,
-            fee=fee,
-            fee_currency=fee_currency,
-            notes=notes,
-            pair=pair
+            fee=kwargs.get('fee', 0.0),
+            fee_currency=kwargs.get('fee_currency', 'EUR'),
+            notes=kwargs.get('notes'),
+            pair=kwargs.get('pair')
         )
 
     @property

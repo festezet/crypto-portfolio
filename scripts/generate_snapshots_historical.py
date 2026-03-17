@@ -57,182 +57,190 @@ def get_historical_prices_batch(symbols, from_date, to_date):
     return all_prices
 
 
+def _compute_holdings_from_transactions(transactions):
+    """Calcule les holdings a partir d'une liste de transactions"""
+    holdings = {}
+    for tx in transactions:
+        symbol = tx.crypto.symbol
+        if symbol not in holdings:
+            holdings[symbol] = {'volume': 0, 'total_cost': 0, 'total_fees': 0}
+
+        h = holdings[symbol]
+        if tx.is_buy:
+            h['volume'] += tx.volume
+            h['total_cost'] += tx.total
+            h['total_fees'] += tx.fee or 0
+        elif tx.is_sell:
+            if h['volume'] > 0:
+                cost_per_unit = h['total_cost'] / h['volume']
+                sold_cost = cost_per_unit * tx.volume
+                h['total_cost'] -= sold_cost
+                h['volume'] -= tx.volume
+                h['total_fees'] += tx.fee or 0
+
+    return {
+        symbol: h for symbol, h in holdings.items()
+        if h['volume'] > 0.00000001
+    }
+
+
+def _get_historical_price_for_symbol(symbol, date_key, current_date, historical_prices):
+    """Recupere le prix historique reel pour un symbole a une date, avec fallback 7 jours"""
+    if symbol in historical_prices and date_key in historical_prices[symbol]:
+        return historical_prices[symbol][date_key]
+
+    for days_back in range(1, 8):
+        prev_date = current_date - timedelta(days=days_back)
+        prev_key = prev_date.strftime('%Y-%m-%d')
+        if symbol in historical_prices and prev_key in historical_prices[symbol]:
+            return historical_prices[symbol][prev_key]
+
+    return None
+
+
+def _calculate_valuation_with_historical_prices(active_holdings, date_key, current_date, historical_prices):
+    """Calcule la valorisation avec les prix historiques reels.
+    Returns (total_value, total_invested, details, missing_prices)"""
+    total_value = 0
+    total_invested = 0
+    details = {}
+    missing_prices = []
+
+    for symbol, h in active_holdings.items():
+        historical_price = _get_historical_price_for_symbol(
+            symbol, date_key, current_date, historical_prices
+        )
+
+        if not historical_price:
+            missing_prices.append(symbol)
+            continue
+
+        value = h['volume'] * historical_price
+        pnl_pct = ((value - h['total_cost']) / h['total_cost'] * 100) if h['total_cost'] > 0 else 0
+
+        total_value += value
+        total_invested += h['total_cost']
+
+        details[symbol] = {
+            'volume': round(h['volume'], 8),
+            'price': round(historical_price, 2),
+            'value': round(value, 2),
+            'pnl_pct': round(pnl_pct, 2)
+        }
+
+    return total_value, total_invested, details, missing_prices
+
+
+def _process_historical_snapshot_date(current_date, all_transactions, historical_prices, skip_existing):
+    """Traite une date pour la generation de snapshot avec prix historiques.
+    Returns: 'skipped' si existant, 'no_data' si pas de donnees, ou le snapshot cree."""
+    date_key = current_date.strftime('%Y-%m-%d')
+
+    existing = PortfolioSnapshot.query.filter(
+        db.func.date(PortfolioSnapshot.date) == current_date.date()
+    ).first()
+
+    if existing and skip_existing:
+        return 'skipped'
+
+    transactions_until_date = [
+        tx for tx in all_transactions if tx.date <= current_date
+    ]
+
+    if not transactions_until_date:
+        return 'no_data'
+
+    active_holdings = _compute_holdings_from_transactions(transactions_until_date)
+    if not active_holdings:
+        return 'no_data'
+
+    total_value, total_invested, details, missing_prices = \
+        _calculate_valuation_with_historical_prices(
+            active_holdings, date_key, current_date, historical_prices
+        )
+
+    if missing_prices:
+        print(f"  {date_key}: Prix manquants pour {', '.join(missing_prices)}")
+
+    if total_value == 0:
+        return 'no_data'
+
+    pnl = total_value - total_invested
+    pnl_pct = (pnl / total_invested * 100) if total_invested > 0 else 0
+
+    snapshot = PortfolioSnapshot(
+        date=current_date,
+        total_value=total_value,
+        total_invested=total_invested,
+        total_pnl=pnl,
+        total_pnl_pct=pnl_pct
+    )
+    snapshot.details = details
+    db.session.add(snapshot)
+    return snapshot
+
+
 def generate_historical_snapshots_with_real_prices():
-    """Génère des snapshots historiques avec les VRAIS prix historiques"""
+    """Genere des snapshots historiques avec les VRAIS prix historiques"""
     app = create_app()
 
     with app.app_context():
-        # Supprimer les anciens snapshots (option)
         delete_old = input("Supprimer les anciens snapshots ? (o/n) [n]: ").lower()
         if delete_old == 'o':
             count = PortfolioSnapshot.query.count()
             PortfolioSnapshot.query.delete()
             db.session.commit()
-            print(f"🗑️  {count} anciens snapshots supprimés")
+            print(f"{count} anciens snapshots supprimes")
 
-        # Vérifier les transactions
         first_tx = Transaction.query.order_by(Transaction.date.asc()).first()
         if not first_tx:
-            print("❌ Aucune transaction trouvée.")
+            print("Aucune transaction trouvee.")
             return
 
-        print(f"📅 Première transaction : {first_tx.date}")
+        print(f"Premiere transaction : {first_tx.date}")
 
-        # Calculer la période
         start_date = first_tx.date.replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = datetime.utcnow().replace(hour=23, minute=59, second=59, microsecond=0)
 
-        # Récupérer toutes les transactions
         all_transactions = Transaction.query.order_by(Transaction.date.asc()).all()
-
-        # Identifier toutes les cryptos uniques
         all_symbols = set(tx.crypto.symbol for tx in all_transactions)
-        print(f"💰 {len(all_symbols)} cryptos détectées : {', '.join(sorted(all_symbols))}")
+        print(f"{len(all_symbols)} cryptos detectees : {', '.join(sorted(all_symbols))}")
 
-        # Récupérer les prix historiques pour TOUTES les cryptos d'un coup
         historical_prices = get_historical_prices_batch(
-            list(all_symbols),
-            start_date,
-            end_date
+            list(all_symbols), start_date, end_date
         )
 
         if not historical_prices:
-            print("❌ Impossible de récupérer les prix historiques.")
+            print("Impossible de recuperer les prix historiques.")
             return
 
-        print(f"\n🔄 Génération des snapshots avec prix réels...")
+        print(f"\nGeneration des snapshots avec prix reels...")
 
         snapshots_created = 0
         snapshots_skipped = 0
-
+        skip_existing = (delete_old != 'o')
         current_date = start_date
 
         while current_date <= end_date:
-            date_key = current_date.strftime('%Y-%m-%d')
-
-            # Vérifier si snapshot existe déjà
-            existing = PortfolioSnapshot.query.filter(
-                db.func.date(PortfolioSnapshot.date) == current_date.date()
-            ).first()
-
-            if existing and delete_old != 'o':
-                snapshots_skipped += 1
-                current_date += timedelta(days=1)
-                continue
-
-            # Calculer l'état du portefeuille à cette date
-            transactions_until_date = [
-                tx for tx in all_transactions if tx.date <= current_date
-            ]
-
-            if not transactions_until_date:
-                current_date += timedelta(days=1)
-                continue
-
-            # Calculer les holdings
-            holdings = {}
-            for tx in transactions_until_date:
-                symbol = tx.crypto.symbol
-                if symbol not in holdings:
-                    holdings[symbol] = {'volume': 0, 'total_cost': 0, 'total_fees': 0}
-
-                h = holdings[symbol]
-                if tx.is_buy:
-                    h['volume'] += tx.volume
-                    h['total_cost'] += tx.total
-                    h['total_fees'] += tx.fee or 0
-                elif tx.is_sell:
-                    if h['volume'] > 0:
-                        cost_per_unit = h['total_cost'] / h['volume']
-                        sold_cost = cost_per_unit * tx.volume
-                        h['total_cost'] -= sold_cost
-                        h['volume'] -= tx.volume
-                        h['total_fees'] += tx.fee or 0
-
-            # Filtrer holdings actifs
-            active_holdings = {
-                symbol: h for symbol, h in holdings.items()
-                if h['volume'] > 0.00000001
-            }
-
-            if not active_holdings:
-                current_date += timedelta(days=1)
-                continue
-
-            # Calculer la valorisation avec les PRIX HISTORIQUES RÉELS
-            total_value = 0
-            total_invested = 0
-            details = {}
-
-            missing_prices = []
-
-            for symbol, h in active_holdings.items():
-                # Récupérer le prix historique réel
-                if symbol in historical_prices and date_key in historical_prices[symbol]:
-                    historical_price = historical_prices[symbol][date_key]
-                else:
-                    # Prix manquant (essayer jour précédent)
-                    historical_price = None
-                    for days_back in range(1, 8):  # Chercher jusqu'à 7 jours avant
-                        prev_date = current_date - timedelta(days=days_back)
-                        prev_key = prev_date.strftime('%Y-%m-%d')
-                        if symbol in historical_prices and prev_key in historical_prices[symbol]:
-                            historical_price = historical_prices[symbol][prev_key]
-                            break
-
-                    if not historical_price:
-                        missing_prices.append(symbol)
-                        continue
-
-                value = h['volume'] * historical_price
-                pnl_pct = ((value - h['total_cost']) / h['total_cost'] * 100) if h['total_cost'] > 0 else 0
-
-                total_value += value
-                total_invested += h['total_cost']
-
-                details[symbol] = {
-                    'volume': round(h['volume'], 8),
-                    'price': round(historical_price, 2),
-                    'value': round(value, 2),
-                    'pnl_pct': round(pnl_pct, 2)
-                }
-
-            if missing_prices:
-                print(f"  ⚠️  {date_key}: Prix manquants pour {', '.join(missing_prices)}")
-
-            if total_value == 0:
-                current_date += timedelta(days=1)
-                continue
-
-            # Créer le snapshot
-            pnl = total_value - total_invested
-            pnl_pct = (pnl / total_invested * 100) if total_invested > 0 else 0
-
-            snapshot = PortfolioSnapshot(
-                date=current_date,
-                total_value=total_value,
-                total_invested=total_invested,
-                total_pnl=pnl,
-                total_pnl_pct=pnl_pct
+            result = _process_historical_snapshot_date(
+                current_date, all_transactions, historical_prices, skip_existing
             )
-            snapshot.details = details
-
-            db.session.add(snapshot)
-            snapshots_created += 1
-
-            if snapshots_created % 10 == 0:
-                db.session.commit()
-                print(f"  📈 {snapshots_created} snapshots créés... (dernier: {date_key})")
-
+            if result == 'skipped':
+                snapshots_skipped += 1
+            elif result != 'no_data':
+                snapshots_created += 1
+                if snapshots_created % 10 == 0:
+                    db.session.commit()
+                    date_key = current_date.strftime('%Y-%m-%d')
+                    print(f"  {snapshots_created} snapshots crees... (dernier: {date_key})")
             current_date += timedelta(days=1)
 
-        # Commit final
         db.session.commit()
 
-        print(f"\n✅ Génération terminée avec prix historiques RÉELS !")
-        print(f"  ✨ Créés : {snapshots_created}")
-        print(f"  ⏭️  Ignorés : {snapshots_skipped}")
-        print(f"  📊 Total : {PortfolioSnapshot.query.count()}")
+        print(f"\nGeneration terminee avec prix historiques reels !")
+        print(f"  Crees : {snapshots_created}")
+        print(f"  Ignores : {snapshots_skipped}")
+        print(f"  Total : {PortfolioSnapshot.query.count()}")
 
 
 if __name__ == '__main__':

@@ -60,58 +60,12 @@ class ImportExportService:
 
         for row_num, row in enumerate(reader, start=2):
             try:
-                # Parser la date
-                date_str = row.get('Date(UTC)', '')
-                try:
-                    date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-                except ValueError:
-                    date = datetime.strptime(date_str, '%Y-%m-%d')
-
-                # Parser la paire (ex: BTCUSDT -> BTC/USDT)
-                pair = row.get('Pair', '')
-                symbol = self._extract_symbol_from_pair(pair)
-
-                # Type de transaction
-                side = row.get('Side', '').upper()
-                tx_type = 'BUY' if side == 'BUY' else 'SELL'
-
-                # Volumes et prix
-                price = self._parse_number(row.get('Price', '0'))
-                volume = self._parse_number(row.get('Executed', '0').split()[0])  # Enlever l'unité
-                total = self._parse_number(row.get('Amount', '0').split()[0])
-                fee = self._parse_number(row.get('Fee', '0').split()[0])
-
-                # Vérifier si transaction déjà importée
-                existing = Transaction.query.filter_by(
-                    date=date,
-                    type=tx_type,
-                    volume=volume,
-                    exchange='binance'
-                ).first()
-
-                if existing:
+                result = self._process_binance_row(row, filename)
+                if result == 'skipped':
                     skipped += 1
-                    continue
-
-                # Créer la crypto si nécessaire
-                crypto = Crypto.get_or_create(symbol)
-
-                # Créer la transaction
-                tx = Transaction(
-                    date=date,
-                    type=tx_type,
-                    exchange='binance',
-                    crypto_id=crypto.id,
-                    volume=volume,
-                    price=price,
-                    total=total,
-                    fee=fee,
-                    pair=pair,
-                    imported_from=filename or 'binance_import'
-                )
-                db.session.add(tx)
-                imported += 1
-
+                elif result:
+                    db.session.add(result)
+                    imported += 1
             except Exception as e:
                 errors.append(f"Ligne {row_num}: {str(e)}")
 
@@ -125,6 +79,41 @@ class ImportExportService:
             'errors': errors,
             'source': 'binance'
         }
+
+    def _process_binance_row(self, row, filename):
+        """Traite une ligne CSV Binance et retourne une Transaction, 'skipped', ou leve une exception"""
+        date_str = row.get('Date(UTC)', '')
+        try:
+            date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            date = datetime.strptime(date_str, '%Y-%m-%d')
+
+        pair = row.get('Pair', '')
+        symbol = self._extract_symbol_from_pair(pair)
+
+        side = row.get('Side', '').upper()
+        tx_type = 'BUY' if side == 'BUY' else 'SELL'
+
+        price = self._parse_number(row.get('Price', '0'))
+        volume = self._parse_number(row.get('Executed', '0').split()[0])
+        total = self._parse_number(row.get('Amount', '0').split()[0])
+        fee = self._parse_number(row.get('Fee', '0').split()[0])
+
+        existing = Transaction.query.filter_by(
+            date=date, type=tx_type, volume=volume, exchange='binance'
+        ).first()
+
+        if existing:
+            return 'skipped'
+
+        crypto = Crypto.get_or_create(symbol)
+
+        return Transaction(
+            date=date, type=tx_type, exchange='binance',
+            crypto_id=crypto.id, volume=volume, price=price,
+            total=total, fee=fee, pair=pair,
+            imported_from=filename or 'binance_import'
+        )
 
     def import_kucoin_csv(self, file_content: str, filename: str = None) -> Dict[str, Any]:
         """
@@ -147,61 +136,12 @@ class ImportExportService:
 
         for row_num, row in enumerate(reader, start=2):
             try:
-                # Parser la date
-                date_str = row.get('tradeCreatedAt', '')
-                try:
-                    # Format Kucoin: 2024-01-15T10:30:00.000Z
-                    date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-                except ValueError:
-                    date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-
-                # Parser la paire (ex: BTC-USDT -> BTC/USDT)
-                pair = row.get('symbol', '').replace('-', '/')
-                symbol = pair.split('/')[0] if '/' in pair else pair.split('-')[0]
-
-                # Type de transaction
-                side = row.get('side', '').lower()
-                tx_type = 'BUY' if side == 'buy' else 'SELL'
-
-                # Volumes et prix
-                price = self._parse_number(row.get('price', '0'))
-                volume = self._parse_number(row.get('size', '0'))
-                total = self._parse_number(row.get('funds', '0'))
-                fee = self._parse_number(row.get('fee', '0'))
-                fee_currency = row.get('feeCurrency', 'USDT')
-
-                # Vérifier si transaction déjà importée
-                existing = Transaction.query.filter_by(
-                    date=date,
-                    type=tx_type,
-                    volume=volume,
-                    exchange='kucoin'
-                ).first()
-
-                if existing:
+                result = self._process_kucoin_row(row, filename)
+                if result == 'skipped':
                     skipped += 1
-                    continue
-
-                # Créer la crypto si nécessaire
-                crypto = Crypto.get_or_create(symbol)
-
-                # Créer la transaction
-                tx = Transaction(
-                    date=date,
-                    type=tx_type,
-                    exchange='kucoin',
-                    crypto_id=crypto.id,
-                    volume=volume,
-                    price=price,
-                    total=total,
-                    fee=fee,
-                    fee_currency=fee_currency,
-                    pair=pair,
-                    imported_from=filename or 'kucoin_import'
-                )
-                db.session.add(tx)
-                imported += 1
-
+                elif result:
+                    db.session.add(result)
+                    imported += 1
             except Exception as e:
                 errors.append(f"Ligne {row_num}: {str(e)}")
 
@@ -215,6 +155,42 @@ class ImportExportService:
             'errors': errors,
             'source': 'kucoin'
         }
+
+    def _process_kucoin_row(self, row, filename):
+        """Traite une ligne CSV Kucoin et retourne une Transaction, 'skipped', ou leve une exception"""
+        date_str = row.get('tradeCreatedAt', '')
+        try:
+            date = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        except ValueError:
+            date = datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+
+        pair = row.get('symbol', '').replace('-', '/')
+        symbol = pair.split('/')[0] if '/' in pair else pair.split('-')[0]
+
+        side = row.get('side', '').lower()
+        tx_type = 'BUY' if side == 'buy' else 'SELL'
+
+        price = self._parse_number(row.get('price', '0'))
+        volume = self._parse_number(row.get('size', '0'))
+        total = self._parse_number(row.get('funds', '0'))
+        fee = self._parse_number(row.get('fee', '0'))
+        fee_currency = row.get('feeCurrency', 'USDT')
+
+        existing = Transaction.query.filter_by(
+            date=date, type=tx_type, volume=volume, exchange='kucoin'
+        ).first()
+
+        if existing:
+            return 'skipped'
+
+        crypto = Crypto.get_or_create(symbol)
+
+        return Transaction(
+            date=date, type=tx_type, exchange='kucoin',
+            crypto_id=crypto.id, volume=volume, price=price,
+            total=total, fee=fee, fee_currency=fee_currency,
+            pair=pair, imported_from=filename or 'kucoin_import'
+        )
 
     def import_generic_csv(self, file_content: str, mapping: Dict[str, str],
                            exchange: str = 'manual', filename: str = None) -> Dict[str, Any]:
@@ -238,56 +214,13 @@ class ImportExportService:
 
         for row_num, row in enumerate(reader, start=2):
             try:
-                # Appliquer le mapping
-                mapped = {}
-                for csv_col, field in mapping.items():
-                    if csv_col in row:
-                        mapped[field] = row[csv_col]
-
-                # Parser la date
-                date_str = mapped.get('date', '')
-                date = self._parse_date(date_str)
-
-                # Symbole
-                symbol = mapped.get('symbol', '').upper()
-                if not symbol:
-                    errors.append(f"Ligne {row_num}: Symbole manquant")
+                result = self._process_generic_row(row, row_num, mapping, exchange, filename)
+                if isinstance(result, str) and result.startswith('skip:'):
+                    errors.append(result[5:])
                     continue
-
-                # Type
-                tx_type = mapped.get('type', 'BUY').upper()
-                if tx_type not in ['BUY', 'SELL', 'TRANSFER_IN', 'TRANSFER_OUT']:
-                    tx_type = 'BUY'
-
-                # Valeurs numériques
-                volume = self._parse_number(mapped.get('volume', '0'))
-                price = self._parse_number(mapped.get('price', '0'))
-                total = self._parse_number(mapped.get('total', str(volume * price)))
-                fee = self._parse_number(mapped.get('fee', '0'))
-
-                if volume <= 0:
-                    errors.append(f"Ligne {row_num}: Volume invalide")
-                    continue
-
-                # Créer la crypto si nécessaire
-                crypto = Crypto.get_or_create(symbol)
-
-                # Créer la transaction
-                tx = Transaction(
-                    date=date,
-                    type=tx_type,
-                    exchange=exchange,
-                    crypto_id=crypto.id,
-                    volume=volume,
-                    price=price,
-                    total=total if total > 0 else volume * price,
-                    fee=fee,
-                    notes=mapped.get('notes'),
-                    imported_from=filename or f'{exchange}_import'
-                )
-                db.session.add(tx)
-                imported += 1
-
+                if result:
+                    db.session.add(result)
+                    imported += 1
             except Exception as e:
                 errors.append(f"Ligne {row_num}: {str(e)}")
 
@@ -301,6 +234,41 @@ class ImportExportService:
             'errors': errors,
             'source': exchange
         }
+
+    def _process_generic_row(self, row, row_num, mapping, exchange, filename):
+        """Traite une ligne CSV generique et retourne une Transaction ou 'skip:reason'"""
+        mapped = {}
+        for csv_col, field in mapping.items():
+            if csv_col in row:
+                mapped[field] = row[csv_col]
+
+        date = self._parse_date(mapped.get('date', ''))
+
+        symbol = mapped.get('symbol', '').upper()
+        if not symbol:
+            return f"skip:Ligne {row_num}: Symbole manquant"
+
+        tx_type = mapped.get('type', 'BUY').upper()
+        if tx_type not in ['BUY', 'SELL', 'TRANSFER_IN', 'TRANSFER_OUT']:
+            tx_type = 'BUY'
+
+        volume = self._parse_number(mapped.get('volume', '0'))
+        price = self._parse_number(mapped.get('price', '0'))
+        total = self._parse_number(mapped.get('total', str(volume * price)))
+        fee = self._parse_number(mapped.get('fee', '0'))
+
+        if volume <= 0:
+            return f"skip:Ligne {row_num}: Volume invalide"
+
+        crypto = Crypto.get_or_create(symbol)
+
+        return Transaction(
+            date=date, type=tx_type, exchange=exchange,
+            crypto_id=crypto.id, volume=volume, price=price,
+            total=total if total > 0 else volume * price,
+            fee=fee, notes=mapped.get('notes'),
+            imported_from=filename or f'{exchange}_import'
+        )
 
     def detect_format(self, file_content: str) -> Optional[str]:
         """

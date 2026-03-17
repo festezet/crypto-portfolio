@@ -20,39 +20,20 @@ from backend.config import (
     DATA_DIR
 )
 from backend.models import init_db
-from backend.api import api_bp
+from backend.api import api_bp, api_ext_bp
 
 
-def create_app():
-    """Factory function pour créer l'application Flask"""
-
-    app = Flask(
-        __name__,
-        template_folder='../frontend/templates',
-        static_folder='../frontend/static'
-    )
-
-    # Configuration
-    app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
-    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = SQLALCHEMY_TRACK_MODIFICATIONS
-    app.config['SECRET_KEY'] = SECRET_KEY
-
-    # CORS pour les appels API depuis le frontend
-    CORS(app)
-
-    # Initialiser la base de données
-    init_db(app)
-
-    # Enregistrer le blueprint API
-    app.register_blueprint(api_bp)
-
-    # S'assurer que les répertoires existent
+def _ensure_directories():
+    """Crée les répertoires de données nécessaires"""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     (DATA_DIR / 'imports').mkdir(exist_ok=True)
     (DATA_DIR / 'exports').mkdir(exist_ok=True)
     (DATA_DIR / 'backups').mkdir(exist_ok=True)
 
-    # Routes frontend
+
+def _register_frontend_routes(app):
+    """Enregistre les routes frontend et les gestionnaires d'erreurs"""
+
     @app.route('/')
     def index():
         return render_template('dashboard.html')
@@ -77,17 +58,14 @@ def create_app():
     def import_page():
         return render_template('import.html')
 
-    # Route pour les fichiers statiques (images crypto)
     @app.route('/crypto-icons/<symbol>')
     def crypto_icon(symbol):
-        # Utiliser des icônes génériques ou CoinGecko
         return send_from_directory(
             app.static_folder + '/images',
             f'{symbol.lower()}.png',
             mimetype='image/png'
         )
 
-    # Gestionnaire d'erreurs
     @app.errorhandler(404)
     def not_found(e):
         if request.path.startswith('/api/'):
@@ -99,6 +77,27 @@ def create_app():
         if request.path.startswith('/api/'):
             return jsonify({'error': 'Internal server error'}), 500
         return render_template('500.html'), 500
+
+
+def create_app():
+    """Factory function pour créer l'application Flask"""
+
+    app = Flask(
+        __name__,
+        template_folder='../frontend/templates',
+        static_folder='../frontend/static'
+    )
+
+    app.config['SQLALCHEMY_DATABASE_URI'] = SQLALCHEMY_DATABASE_URI
+    app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = SQLALCHEMY_TRACK_MODIFICATIONS
+    app.config['SECRET_KEY'] = SECRET_KEY
+
+    CORS(app)
+    init_db(app)
+    app.register_blueprint(api_bp)
+    app.register_blueprint(api_ext_bp)
+    _ensure_directories()
+    _register_frontend_routes(app)
 
     return app
 

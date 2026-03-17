@@ -81,6 +81,10 @@ Date,Type,Symbol,Volume,Price,Fee
     </div>
 </div>
 
+{% endblock %}
+
+{% block extra_js %}
+<script src="{{ url_for('static', filename='js/import.js') }}"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     setupFileUpload();

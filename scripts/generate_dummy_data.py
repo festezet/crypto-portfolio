@@ -208,101 +208,104 @@ def add_variation(price: float, max_pct: float = 3) -> float:
     return price * (1 + variation)
 
 
-def generate_dummy_data():
-    """Génère les données de test"""
+def _clear_old_data():
+    """Supprime les anciennes donnees de test"""
+    print("Suppression des anciennes donnees...")
+    Transaction.query.delete()
+    Crypto.query.delete()
+    db.session.commit()
 
-    with app.app_context():
-        # Supprimer les anciennes données
-        print("Suppression des anciennes données...")
-        Transaction.query.delete()
-        Crypto.query.delete()
-        db.session.commit()
 
-        # Créer les cryptos
-        print("Création des cryptos...")
-        cryptos = {}
-        for symbol in ALLOCATION.keys():
-            crypto = Crypto(
-                symbol=symbol,
-                name=CRYPTO_NAMES.get(symbol, symbol),
-                coingecko_id=COINGECKO_IDS.get(symbol)
+def _create_cryptos():
+    """Cree les cryptos en base et retourne un dict symbol -> Crypto"""
+    print("Creation des cryptos...")
+    cryptos = {}
+    for symbol in ALLOCATION.keys():
+        crypto = Crypto(
+            symbol=symbol,
+            name=CRYPTO_NAMES.get(symbol, symbol),
+            coingecko_id=COINGECKO_IDS.get(symbol)
+        )
+        db.session.add(crypto)
+        db.session.flush()
+        cryptos[symbol] = crypto
+    db.session.commit()
+    return cryptos
+
+
+def _generate_monthly_buys(cryptos, start_date, end_date):
+    """Genere les achats mensuels DCA et retourne (month_count, total_invested)"""
+    current_date = start_date
+    month_count = 0
+    total_invested = 0
+
+    while current_date <= end_date:
+        month_count += 1
+        print(f"\n{current_date.strftime('%B %Y')}")
+
+        for symbol, allocation in ALLOCATION.items():
+            amount_eur = MONTHLY_INVESTMENT * allocation
+            base_price = get_price_for_date(symbol, current_date)
+            price = add_variation(base_price, max_pct=2)
+            volume = amount_eur / price
+            fee = amount_eur * 0.001
+            exchange = choice(['binance', 'kucoin'])
+
+            tx = Transaction(
+                date=current_date + timedelta(hours=uniform(9, 18)),
+                type='BUY',
+                exchange=exchange,
+                crypto_id=cryptos[symbol].id,
+                volume=volume,
+                price=price,
+                total=amount_eur,
+                fee=fee,
+                fee_currency='EUR',
+                pair=f"{symbol}/EUR",
+                quote_currency='EUR',
+                notes=f"DCA mensuel {current_date.strftime('%B %Y')}"
             )
-            db.session.add(crypto)
-            db.session.flush()
-            cryptos[symbol] = crypto
+            db.session.add(tx)
 
-        db.session.commit()
+            print(f"  {symbol:5} : {amount_eur:6.0f}EUR -> {volume:12.8f} @ {price:10.2f}EUR ({exchange})")
+            total_invested += amount_eur
 
-        # Générer les achats mensuels
-        print("\nGénération des achats mensuels (1000€/mois)...")
+        if current_date.month == 12:
+            current_date = datetime(current_date.year + 1, 1, 1)
+        else:
+            current_date = datetime(current_date.year, current_date.month + 1, 1)
+
+    db.session.commit()
+    return month_count, total_invested
+
+
+def _print_summary(month_count, total_invested):
+    """Affiche le resume de la generation"""
+    print("\n" + "=" * 60)
+    print(f"Donnees generees avec succes!")
+    print(f"   - Mois simules : {month_count}")
+    print(f"   - Total investi : {total_invested:,.0f}EUR")
+    print(f"   - Transactions creees : {Transaction.query.count()}")
+    print(f"   - Cryptos : {', '.join(ALLOCATION.keys())}")
+    print("\nRepartition de l'investissement :")
+    for symbol, alloc in ALLOCATION.items():
+        print(f"   {symbol:5} : {alloc*100:5.1f}% ({MONTHLY_INVESTMENT * alloc * month_count:,.0f}EUR)")
+
+
+def generate_dummy_data():
+    """Genere les donnees de test"""
+    with app.app_context():
+        _clear_old_data()
+        cryptos = _create_cryptos()
+
+        print("\nGeneration des achats mensuels (1000EUR/mois)...")
         print("=" * 60)
 
         start_date = datetime(2025, 1, 1)
-        end_date = datetime(2025, 11, 21)  # Aujourd'hui
+        end_date = datetime(2025, 11, 21)
 
-        current_date = start_date
-        month_count = 0
-        total_invested = 0
-
-        while current_date <= end_date:
-            month_count += 1
-            print(f"\n📅 {current_date.strftime('%B %Y')}")
-
-            # Pour chaque crypto de l'allocation
-            for symbol, allocation in ALLOCATION.items():
-                amount_eur = MONTHLY_INVESTMENT * allocation
-
-                # Prix du jour (avec petite variation)
-                base_price = get_price_for_date(symbol, current_date)
-                price = add_variation(base_price, max_pct=2)
-
-                # Volume acheté
-                volume = amount_eur / price
-
-                # Frais (0.1%)
-                fee = amount_eur * 0.001
-
-                # Choisir un exchange aléatoirement
-                exchange = choice(['binance', 'kucoin'])
-
-                # Créer la transaction
-                tx = Transaction(
-                    date=current_date + timedelta(hours=uniform(9, 18)),
-                    type='BUY',
-                    exchange=exchange,
-                    crypto_id=cryptos[symbol].id,
-                    volume=volume,
-                    price=price,
-                    total=amount_eur,
-                    fee=fee,
-                    fee_currency='EUR',
-                    pair=f"{symbol}/EUR",
-                    quote_currency='EUR',
-                    notes=f"DCA mensuel {current_date.strftime('%B %Y')}"
-                )
-                db.session.add(tx)
-
-                print(f"  {symbol:5} : {amount_eur:6.0f}€ → {volume:12.8f} @ {price:10.2f}€ ({exchange})")
-                total_invested += amount_eur
-
-            # Passer au mois suivant (1er du mois)
-            if current_date.month == 12:
-                current_date = datetime(current_date.year + 1, 1, 1)
-            else:
-                current_date = datetime(current_date.year, current_date.month + 1, 1)
-
-        db.session.commit()
-
-        # Résumé
-        print("\n" + "=" * 60)
-        print(f"✅ Données générées avec succès!")
-        print(f"   - Mois simulés : {month_count}")
-        print(f"   - Total investi : {total_invested:,.0f}€")
-        print(f"   - Transactions créées : {Transaction.query.count()}")
-        print(f"   - Cryptos : {', '.join(ALLOCATION.keys())}")
-        print("\n📊 Répartition de l'investissement :")
-        for symbol, alloc in ALLOCATION.items():
-            print(f"   {symbol:5} : {alloc*100:5.1f}% ({MONTHLY_INVESTMENT * alloc * month_count:,.0f}€)")
+        month_count, total_invested = _generate_monthly_buys(cryptos, start_date, end_date)
+        _print_summary(month_count, total_invested)
 
 
 if __name__ == '__main__':

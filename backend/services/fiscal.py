@@ -111,7 +111,6 @@ class FiscalService:
         Returns:
             Détails des ventes et gains
         """
-        # Construire la file FIFO des achats
         fifo_queue = []
         sales = []
         total_volume_sold = 0
@@ -121,68 +120,20 @@ class FiscalService:
 
         for tx in transactions:
             if tx.is_buy:
-                # Ajouter à la file FIFO
                 fifo_queue.append(FIFOLot(
-                    date=tx.date,
-                    volume=tx.volume,
-                    price=tx.price,
-                    fee=tx.fee or 0
+                    date=tx.date, volume=tx.volume,
+                    price=tx.price, fee=tx.fee or 0
                 ))
 
             elif tx.is_sell and start_date <= tx.date <= end_date:
-                # Calculer le coût d'acquisition (FIFO)
-                volume_to_sell = tx.volume
-                cost_basis = 0
-                acquisition_fees = 0
-                acquisition_dates = []
-
-                while volume_to_sell > 0 and fifo_queue:
-                    lot = fifo_queue[0]
-                    if lot.volume <= 0:
-                        fifo_queue.pop(0)
-                        continue
-
-                    consumed, lot_cost, lot_fee = lot.consume(volume_to_sell)
-                    cost_basis += lot_cost
-                    acquisition_fees += lot_fee
-                    volume_to_sell -= consumed
-                    acquisition_dates.append({
-                        'date': lot.date.isoformat(),
-                        'volume': consumed,
-                        'price': lot.price
-                    })
-
-                    if lot.volume <= 0:
-                        fifo_queue.pop(0)
-
-                # Calculer le gain
-                proceeds = tx.total
-                sale_fee = tx.fee or 0
-                total_fees_for_sale = acquisition_fees + sale_fee
-                gain = proceeds - cost_basis - total_fees_for_sale
-
-                sale_record = {
-                    'date': tx.date.isoformat(),
-                    'volume': tx.volume,
-                    'sale_price': tx.price,
-                    'proceeds': round(proceeds, 2),
-                    'cost_basis': round(cost_basis, 2),
-                    'acquisition_fees': round(acquisition_fees, 2),
-                    'sale_fee': round(sale_fee, 2),
-                    'total_fees': round(total_fees_for_sale, 2),
-                    'gain': round(gain, 2),
-                    'gain_pct': round((gain / cost_basis * 100) if cost_basis > 0 else 0, 2),
-                    'holding_period_days': self._calculate_holding_period(acquisition_dates, tx.date),
-                    'acquisition_details': acquisition_dates
-                }
+                sale_record = self._process_fifo_sale(tx, fifo_queue)
                 sales.append(sale_record)
 
                 total_volume_sold += tx.volume
-                total_proceeds += proceeds
-                total_cost_basis += cost_basis
-                total_fees += total_fees_for_sale
+                total_proceeds += sale_record['proceeds']
+                total_cost_basis += sale_record['cost_basis']
+                total_fees += sale_record['total_fees']
 
-        # Calculer le gain total
         total_gain = total_proceeds - total_cost_basis - total_fees
 
         return {
@@ -195,6 +146,52 @@ class FiscalService:
                 'total_fees': round(total_fees, 2),
                 'total_gain': round(total_gain, 2)
             }
+        }
+
+    def _process_fifo_sale(self, tx, fifo_queue) -> Dict[str, Any]:
+        """Traite une vente selon la methode FIFO et retourne le detail de la cession"""
+        volume_to_sell = tx.volume
+        cost_basis = 0
+        acquisition_fees = 0
+        acquisition_dates = []
+
+        while volume_to_sell > 0 and fifo_queue:
+            lot = fifo_queue[0]
+            if lot.volume <= 0:
+                fifo_queue.pop(0)
+                continue
+
+            consumed, lot_cost, lot_fee = lot.consume(volume_to_sell)
+            cost_basis += lot_cost
+            acquisition_fees += lot_fee
+            volume_to_sell -= consumed
+            acquisition_dates.append({
+                'date': lot.date.isoformat(),
+                'volume': consumed,
+                'price': lot.price
+            })
+
+            if lot.volume <= 0:
+                fifo_queue.pop(0)
+
+        proceeds = tx.total
+        sale_fee = tx.fee or 0
+        total_fees_for_sale = acquisition_fees + sale_fee
+        gain = proceeds - cost_basis - total_fees_for_sale
+
+        return {
+            'date': tx.date.isoformat(),
+            'volume': tx.volume,
+            'sale_price': tx.price,
+            'proceeds': round(proceeds, 2),
+            'cost_basis': round(cost_basis, 2),
+            'acquisition_fees': round(acquisition_fees, 2),
+            'sale_fee': round(sale_fee, 2),
+            'total_fees': round(total_fees_for_sale, 2),
+            'gain': round(gain, 2),
+            'gain_pct': round((gain / cost_basis * 100) if cost_basis > 0 else 0, 2),
+            'holding_period_days': self._calculate_holding_period(acquisition_dates, tx.date),
+            'acquisition_details': acquisition_dates
         }
 
     def _calculate_holding_period(self, acquisition_dates: List[Dict],
@@ -227,6 +224,25 @@ class FiscalService:
         """
         data = self.calculate_yearly_gains(year)
 
+        lines = self._format_report_header(data, year)
+
+        for symbol, crypto_data in data['gains_by_crypto'].items():
+            if not crypto_data['sales']:
+                continue
+            lines.extend(self._format_crypto_detail(symbol, crypto_data))
+
+        lines.extend([
+            f"",
+            f"=" * 60,
+            f"Rapport généré le {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Méthode de calcul : FIFO (First In, First Out)",
+            f"=" * 60,
+        ])
+
+        return "\n".join(lines)
+
+    def _format_report_header(self, data, year) -> List[str]:
+        """Formate l'en-tete et le resume du rapport fiscal"""
         lines = [
             f"=" * 60,
             f"RAPPORT FISCAL CRYPTO - ANNÉE {year}",
@@ -247,51 +263,38 @@ class FiscalService:
         else:
             lines.append(f"MOINS-VALUE REPORTABLE       : {data['reportable_loss']:>12.2f} €")
 
-        lines.extend([
+        lines.extend([f"", f"DÉTAIL PAR CRYPTOMONNAIE", f"=" * 60])
+        return lines
+
+    def _format_crypto_detail(self, symbol, crypto_data) -> List[str]:
+        """Formate le detail d'une crypto pour le rapport fiscal"""
+        summary = crypto_data['summary']
+        lines = [
             f"",
-            f"DÉTAIL PAR CRYPTOMONNAIE",
-            f"=" * 60,
-        ])
+            f"{symbol}",
+            f"-" * 40,
+            f"  Ventes effectuées    : {len(crypto_data['sales'])}",
+            f"  Volume total vendu   : {summary['total_volume_sold']:.8f}",
+            f"  Prix de cession total: {summary['total_proceeds']:>12.2f} €",
+            f"  Prix d'acquisition   : {summary['total_cost_basis']:>12.2f} €",
+            f"  Frais totaux         : {summary['total_fees']:>12.2f} €",
+            f"  Plus/moins-value     : {summary['total_gain']:>12.2f} €",
+            f"",
+            f"  Détail des cessions:",
+        ]
 
-        for symbol, crypto_data in data['gains_by_crypto'].items():
-            if not crypto_data['sales']:
-                continue
-
-            summary = crypto_data['summary']
+        for i, sale in enumerate(crypto_data['sales'], 1):
             lines.extend([
-                f"",
-                f"{symbol}",
-                f"-" * 40,
-                f"  Ventes effectuées    : {len(crypto_data['sales'])}",
-                f"  Volume total vendu   : {summary['total_volume_sold']:.8f}",
-                f"  Prix de cession total: {summary['total_proceeds']:>12.2f} €",
-                f"  Prix d'acquisition   : {summary['total_cost_basis']:>12.2f} €",
-                f"  Frais totaux         : {summary['total_fees']:>12.2f} €",
-                f"  Plus/moins-value     : {summary['total_gain']:>12.2f} €",
+                f"    [{i}] {sale['date'][:10]}",
+                f"        Volume      : {sale['volume']:.8f}",
+                f"        Prix vente  : {sale['sale_price']:.2f} €",
+                f"        Produit     : {sale['proceeds']:.2f} €",
+                f"        Coût acq.   : {sale['cost_basis']:.2f} €",
+                f"        Gain        : {sale['gain']:.2f} € ({sale['gain_pct']:.1f}%)",
+                f"        Durée dét.  : {sale['holding_period_days']} jours",
             ])
 
-            lines.append(f"")
-            lines.append(f"  Détail des cessions:")
-            for i, sale in enumerate(crypto_data['sales'], 1):
-                lines.extend([
-                    f"    [{i}] {sale['date'][:10]}",
-                    f"        Volume      : {sale['volume']:.8f}",
-                    f"        Prix vente  : {sale['sale_price']:.2f} €",
-                    f"        Produit     : {sale['proceeds']:.2f} €",
-                    f"        Coût acq.   : {sale['cost_basis']:.2f} €",
-                    f"        Gain        : {sale['gain']:.2f} € ({sale['gain_pct']:.1f}%)",
-                    f"        Durée dét.  : {sale['holding_period_days']} jours",
-                ])
-
-        lines.extend([
-            f"",
-            f"=" * 60,
-            f"Rapport généré le {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"Méthode de calcul : FIFO (First In, First Out)",
-            f"=" * 60,
-        ])
-
-        return "\n".join(lines)
+        return lines
 
     def export_fiscal_csv(self, year: int) -> str:
         """

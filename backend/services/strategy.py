@@ -182,70 +182,81 @@ class StrategyService:
             current_price = holding['current_price']
             volume = holding['volume']
 
-            # Vérifier les seuils déclenchés
-            triggered = strategy.get_triggered_thresholds(current_profit_pct)
-
-            for threshold in triggered:
-                # Vérifier si une alerte existe déjà pour ce seuil
-                existing_alert = StrategyAlert.query.filter_by(
-                    strategy_id=strategy.id,
-                    threshold_pct=threshold['profit_pct'],
-                    status='pending'
-                ).first()
-
-                if not existing_alert:
-                    # Calculer le volume à vendre
-                    sell_pct = threshold['sell_pct']
-                    volume_to_sell = volume * (sell_pct / 100)
-                    estimated_value = volume_to_sell * current_price
-
-                    alert = StrategyAlert(
-                        strategy_id=strategy.id,
-                        threshold_pct=threshold['profit_pct'],
-                        sell_pct=sell_pct,
-                        current_profit_pct=current_profit_pct,
-                        current_price=current_price,
-                        volume_to_sell=volume_to_sell,
-                        estimated_value=estimated_value,
-                        alert_type='threshold'
-                    )
-                    db.session.add(alert)
-                    new_alerts.append(alert)
-
-            # Vérifier la récupération du capital
-            if (strategy.capital_recovery_enabled and
-                    not strategy.capital_recovered and
-                    current_profit_pct >= strategy.capital_recovery_at_pct):
-
-                existing_cr_alert = StrategyAlert.query.filter_by(
-                    strategy_id=strategy.id,
-                    alert_type='capital_recovery',
-                    status='pending'
-                ).first()
-
-                if not existing_cr_alert:
-                    # Calculer le volume pour récupérer le capital
-                    total_invested = holding['total_invested']
-                    capital_to_recover = total_invested * (strategy.capital_recovery_amount_pct / 100)
-                    volume_to_sell = capital_to_recover / current_price if current_price > 0 else 0
-
-                    alert = StrategyAlert(
-                        strategy_id=strategy.id,
-                        threshold_pct=strategy.capital_recovery_at_pct,
-                        sell_pct=0,  # Basé sur le montant, pas le pourcentage
-                        current_profit_pct=current_profit_pct,
-                        current_price=current_price,
-                        volume_to_sell=volume_to_sell,
-                        estimated_value=capital_to_recover,
-                        alert_type='capital_recovery'
-                    )
-                    db.session.add(alert)
-                    new_alerts.append(alert)
+            self._check_threshold_alerts(
+                strategy, current_profit_pct, current_price, volume, new_alerts
+            )
+            self._check_capital_recovery_alert(
+                strategy, holding, current_profit_pct, current_price, new_alerts
+            )
 
         if new_alerts:
             db.session.commit()
 
         return new_alerts
+
+    def _check_threshold_alerts(self, strategy, current_profit_pct,
+                                current_price, volume, new_alerts):
+        """Verifie les seuils declenches et cree les alertes correspondantes"""
+        triggered = strategy.get_triggered_thresholds(current_profit_pct)
+
+        for threshold in triggered:
+            existing_alert = StrategyAlert.query.filter_by(
+                strategy_id=strategy.id,
+                threshold_pct=threshold['profit_pct'],
+                status='pending'
+            ).first()
+
+            if not existing_alert:
+                sell_pct = threshold['sell_pct']
+                volume_to_sell = volume * (sell_pct / 100)
+                estimated_value = volume_to_sell * current_price
+
+                alert = StrategyAlert(
+                    strategy_id=strategy.id,
+                    threshold_pct=threshold['profit_pct'],
+                    sell_pct=sell_pct,
+                    current_profit_pct=current_profit_pct,
+                    current_price=current_price,
+                    volume_to_sell=volume_to_sell,
+                    estimated_value=estimated_value,
+                    alert_type='threshold'
+                )
+                db.session.add(alert)
+                new_alerts.append(alert)
+
+    def _check_capital_recovery_alert(self, strategy, holding,
+                                      current_profit_pct, current_price, new_alerts):
+        """Verifie et cree une alerte de recuperation du capital si applicable"""
+        if not (strategy.capital_recovery_enabled and
+                not strategy.capital_recovered and
+                current_profit_pct >= strategy.capital_recovery_at_pct):
+            return
+
+        existing_cr_alert = StrategyAlert.query.filter_by(
+            strategy_id=strategy.id,
+            alert_type='capital_recovery',
+            status='pending'
+        ).first()
+
+        if existing_cr_alert:
+            return
+
+        total_invested = holding['total_invested']
+        capital_to_recover = total_invested * (strategy.capital_recovery_amount_pct / 100)
+        volume_to_sell = capital_to_recover / current_price if current_price > 0 else 0
+
+        alert = StrategyAlert(
+            strategy_id=strategy.id,
+            threshold_pct=strategy.capital_recovery_at_pct,
+            sell_pct=0,
+            current_profit_pct=current_profit_pct,
+            current_price=current_price,
+            volume_to_sell=volume_to_sell,
+            estimated_value=capital_to_recover,
+            alert_type='capital_recovery'
+        )
+        db.session.add(alert)
+        new_alerts.append(alert)
 
     def get_pending_alerts(self) -> List[Dict[str, Any]]:
         """Récupère toutes les alertes en attente"""

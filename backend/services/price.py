@@ -101,7 +101,20 @@ class PriceService:
         currency = (currency or BASE_CURRENCY).lower()
         result = {}
 
-        # Séparer les cryptos en cache et non en cache
+        to_fetch = self._collect_cached_prices(symbols, currency, result)
+        if not to_fetch:
+            return result
+
+        ids_map = self._build_coingecko_ids_map(to_fetch)
+        if not ids_map:
+            return result
+
+        self._fetch_and_cache_prices(ids_map, currency, result)
+        return result
+
+    def _collect_cached_prices(self, symbols: List[str], currency: str,
+                               result: Dict[str, float]) -> List[str]:
+        """Collecte les prix en cache et retourne les symboles manquants"""
         to_fetch = []
         for symbol in symbols:
             symbol = symbol.upper()
@@ -110,20 +123,20 @@ class PriceService:
                 result[symbol] = self._cache[cache_key]['price']
             else:
                 to_fetch.append(symbol)
+        return to_fetch
 
-        if not to_fetch:
-            return result
-
-        # Récupérer les IDs CoinGecko
+    def _build_coingecko_ids_map(self, symbols: List[str]) -> Dict[str, str]:
+        """Construit le mapping CoinGecko ID -> symbol"""
         ids_map = {}
-        for symbol in to_fetch:
+        for symbol in symbols:
             cg_id = CRYPTO_MAPPING.get(symbol)
             if cg_id:
                 ids_map[cg_id] = symbol
+        return ids_map
 
-        if not ids_map:
-            return result
-
+    def _fetch_and_cache_prices(self, ids_map: Dict[str, str],
+                                currency: str, result: Dict[str, float]):
+        """Fetch les prix depuis l'API et met en cache"""
         try:
             self._rate_limit()
             url = f"{COINGECKO_API_URL}/simple/price"
@@ -151,8 +164,6 @@ class PriceService:
 
         except requests.RequestException as e:
             print(f"Error fetching prices: {e}")
-
-        return result
 
     def get_price_change_24h(self, symbol: str, currency: str = None) -> Optional[float]:
         """Récupère le changement de prix sur 24h en pourcentage"""

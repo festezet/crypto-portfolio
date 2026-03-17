@@ -213,6 +213,10 @@ source venv/bin/activate
 python3 scripts/generate_dummy_data.py
 ```
 
+## Documentation
+
+- **Specification technique complete** : [`docs/spec/SPEC.md`](docs/spec/SPEC.md) (architecture, modele de donnees, 9 features, API, ADRs)
+
 ## Licence
 
 Usage personnel uniquement.

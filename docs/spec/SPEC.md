@@ -983,17 +983,44 @@ Definies dans `backend/app.py`, servent les templates Jinja2 :
 
 ### 6.3 Interface CLI
 
+Le projet propose une interface CLI pour consulter et gerer le portefeuille depuis le terminal, sans lancer le serveur web.
+
+**Fichier source** : `cli.py`
+
+**Commandes disponibles** :
+
+| Commande | Description | Arguments | Options |
+|----------|-------------|-----------|---------|
+| `holdings` | Affiche les positions du portefeuille avec PMP, prix, valeur, P&L | - | `--json` : sortie JSON brute |
+| `prices` | Affiche les prix actuels des cryptos | `[symbols...]` : symboles (ex: BTC ETH). Si vide, affiche les holdings | - |
+| `stats` | Statistiques du portefeuille (nb actifs, valeur totale, P&L, top 3) | - | - |
+| `fiscal` | Rapport fiscal des plus-values (FIFO) | - | `--year YYYY` : annee fiscale (defaut: toutes) |
+| `export` | Exporte les transactions vers fichier | - | `--format csv\|json` (defaut: csv) |
+| `import` | Importe des transactions depuis fichier CSV | `file` : chemin du fichier | `--exchange binance\|kucoin\|generic` (defaut: generic) |
+
+**Exemples d'utilisation** :
+
 ```bash
-# Lancement complet (venv + install + serveur + navigateur)
+# Afficher les positions
+python3 cli.py holdings
+
+# Afficher les prix BTC et ETH
+python3 cli.py prices BTC ETH
+
+# Statistiques du portefeuille
+python3 cli.py stats
+
+# Rapport fiscal pour 2025
+python3 cli.py fiscal --year 2025
+
+# Exporter les transactions en CSV
+python3 cli.py export --format csv
+
+# Importer depuis un fichier Binance
+python3 cli.py import transactions.csv --exchange binance
+
+# Lancement serveur web (voir section 8.4)
 ./start.sh
-
-# Lancement manuel
-cd /data/projects/crypto-portfolio
-source venv/bin/activate
-python3 backend/app.py
-
-# Generation de donnees de test (DCA simule)
-python3 scripts/generate_dummy_data.py
 ```
 
 ---

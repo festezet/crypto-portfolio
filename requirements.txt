@@ -27,3 +27,4 @@ cryptography==41.0.7
 
 # Development
 pytest==7.4.3
+shared-lib @ file:///data/projects/shared-lib

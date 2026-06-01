@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+
+{% block title %}Récap Fiscal Consolidé 2025 - Crypto Portfolio{% endblock %}
+{% block page_title %}Récap Fiscal Consolidé 2025{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Vue consolidée — Déclaration revenus 2025</h3>
+        <button class="btn btn-primary" onclick="loadConsolidated()">Charger</button>
+    </div>
+    <p style="color: var(--text-secondary); margin-bottom: 15px;">
+        Toutes plateformes : Trade Republic, Kucoin, Binance, Kraken, Revolut, Crédit Coopératif
+    </p>
+</div>
+
+<!-- Cases impôts -->
+<div class="card" id="tax-cases-card" style="display:none;">
+    <div class="card-header">
+        <h3 class="card-title">Cases à remplir (déclaration 2042 / 2086 / 3916)</h3>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Case</th>
+                <th>Libellé</th>
+                <th class="text-right">Montant</th>
+                <th>Source</th>
+            </tr>
+        </thead>
+        <tbody id="tax-cases-body"></tbody>
+    </table>
+</div>
+
+<!-- Trade Republic -->
+<div class="card" id="tr-card" style="display:none;">
+    <div class="card-header">
+        <h3 class="card-title">Trade Republic (IFU pré-rempli)</h3>
+    </div>
+    <table>
+        <thead>
+            <tr><th>Poste</th><th class="text-right">Montant</th></tr>
+        </thead>
+        <tbody id="tr-body"></tbody>
+    </table>
+</div>
+
+<!-- Crypto P&L -->
+<div class="card" id="crypto-card" style="display:none;">
+    <div class="card-header">
+        <h3 class="card-title">Plus-values crypto (formulaire 2086)</h3>
+    </div>
+    <div class="grid grid-3" id="crypto-summary"></div>
+    <div id="crypto-details-consolidated" style="margin-top: 15px;"></div>
+</div>
+
+<!-- Revolut -->
+<div class="card" id="revolut-card" style="display:none;">
+    <div class="card-header">
+        <h3 class="card-title">Revolut (actions, devises, or)</h3>
+    </div>
+    <table>
+        <thead>
+            <tr><th>Poste</th><th class="text-right">Montant</th></tr>
+        </thead>
+        <tbody id="revolut-body"></tbody>
+    </table>
+</div>
+
+<!-- Frais totaux -->
+<div class="card" id="fees-card" style="display:none;">
+    <div class="card-header">
+        <h3 class="card-title">Frais totaux (toutes plateformes)</h3>
+    </div>
+    <table>
+        <thead>
+            <tr><th>Plateforme / Type</th><th class="text-right">Montant</th></tr>
+        </thead>
+        <tbody id="fees-body"></tbody>
+    </table>
+</div>
+
+<!-- Dons associations -->
+<div class="card" id="donations-card" style="display:none;">
+    <div class="card-header">
+        <h3 class="card-title">Dons aux associations (cases 7UD / 7UF)</h3>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Association</th>
+                <th>Régime</th>
+                <th class="text-right">Total 2025</th>
+                <th class="text-right">Réduction</th>
+            </tr>
+        </thead>
+        <tbody id="donations-body"></tbody>
+    </table>
+    <div class="grid grid-3" id="donations-summary" style="margin-top: 15px;"></div>
+</div>
+
+<!-- Comptes étrangers 3916 -->
+<div class="card" id="accounts-card" style="display:none;">
+    <div class="card-header">
+        <h3 class="card-title">Comptes à l'étranger (formulaire 3916)</h3>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Plateforme</th>
+                <th>Pays</th>
+                <th>Ouverture</th>
+                <th>Clôture</th>
+                <th class="text-right">Valeur max</th>
+            </tr>
+        </thead>
+        <tbody id="accounts-body"></tbody>
+    </table>
+</div>
+
+<script>
+async function loadConsolidated() {
+    try {
+        const data = await apiCall('/fiscal/2025/consolidated');
+        renderTaxCases(data.tax_cases);
+        renderTradeRepublic(data.trade_republic);
+        renderCrypto(data.crypto);
+        renderRevolut(data.revolut);
+        renderFees(data.fees_total);
+        renderDonations(data.donations);
+        renderAccounts(data.foreign_accounts);
+    } catch (err) {
+        showToast('Erreur chargement données fiscales', 'error');
+        console.error(err);
+    }
+}
+
+function renderTaxCases(cases) {
+    const card = document.getElementById('tax-cases-card');
+    card.style.display = '';
+    const tbody = document.getElementById('tax-cases-body');
+    const prefilled = cases.filter(c => c.prefilled);
+    const manual = cases.filter(c => !c.prefilled);
+
+    let html = '';
+    if (prefilled.length) {
+        html += `<tr><td colspan="4" style="background: var(--bg-secondary); font-weight: bold; padding: 8px 12px;">
+            Pré-rempli par l'administration fiscale</td></tr>`;
+        html += prefilled.map(c => `
+            <tr style="opacity: 0.7;">
+                <td><strong>${c.case}</strong></td>
+                <td>${c.label}</td>
+                <td class="text-right">${formatCurrency(c.amount)}</td>
+                <td style="color: var(--text-muted); font-size: 0.85rem;">${c.source}</td>
+            </tr>
+        `).join('');
+    }
+    if (manual.length) {
+        html += `<tr><td colspan="4" style="background: var(--accent-color); color: white; font-weight: bold; padding: 8px 12px;">
+            À saisir manuellement</td></tr>`;
+        html += manual.map(c => `
+            <tr>
+                <td><strong>${c.case}</strong></td>
+                <td>${c.label}</td>
+                <td class="text-right ${c.amount !== null ? (c.amount >= 0 ? 'positive' : 'negative') : ''}">
+                    ${c.amount !== null ? formatCurrency(c.amount) : '<em>formulaire dédié</em>'}
+                </td>
+                <td style="color: var(--text-muted); font-size: 0.85rem;">${c.source}</td>
+            </tr>
+        `).join('');
+    }
+    tbody.innerHTML = html;
+}
+
+function renderTradeRepublic(tr) {
+    const card = document.getElementById('tr-card');
+    card.style.display = '';
+    const tbody = document.getElementById('tr-body');
+    tbody.innerHTML = tr.details.map(d => `
+        <tr>
+            <td>${d.label}</td>
+            <td class="text-right ${d.amount >= 0 ? 'positive' : 'negative'}">${formatCurrency(d.amount)}</td>
+        </tr>
+    `).join('');
+}
+
+function renderCrypto(crypto) {
+    const card = document.getElementById('crypto-card');
+    card.style.display = '';
+
+    if (crypto.sursis_imposition) {
+        document.getElementById('crypto-summary').innerHTML = `
+            <div class="stat-card" style="grid-column: 1 / -1;">
+                <div class="label" style="color: var(--accent-color); font-size: 1.1rem;">Sursis d'imposition — Formulaire 2086 non requis</div>
+                <div class="value" style="font-size: 0.95rem; margin-top: 8px;">${crypto.sursis_detail}</div>
+            </div>
+        `;
+        document.getElementById('crypto-details-consolidated').innerHTML = `
+            <div style="padding: 12px; background: var(--bg-secondary); border-radius: 8px; margin-top: 10px;">
+                <strong>Prix total d'acquisition (conservé pour futures cessions) :</strong>
+                ${formatCurrency(crypto.prix_acquisition_total)}<br>
+                <span style="color: var(--text-muted); font-size: 0.85rem;">${crypto.detail_acquisition}</span>
+            </div>
+            <div style="padding: 12px; background: var(--bg-secondary); border-radius: 8px; margin-top: 10px;">
+                <strong>Échanges 2025 (non imposables) :</strong>
+                <div style="margin-top: 6px; color: var(--text-muted); font-size: 0.9rem;">
+                    XMR → USDT : 2 opérations sur Kucoin (nov. 2025)<br>
+                    HYPE → USDT : 2 opérations sur Kucoin (déc. 2025)
+                </div>
+            </div>
+        `;
+    } else {
+        document.getElementById('crypto-summary').innerHTML = `
+            <div class="stat-card">
+                <div class="label">PV brute (FIFO)</div>
+                <div class="value positive">${formatCurrency(crypto.net_gain)}</div>
+            </div>
+        `;
+        let html = '';
+        for (const [symbol, cryptoData] of Object.entries(crypto.gains_by_crypto)) {
+            if (!cryptoData.sales || cryptoData.sales.length === 0) continue;
+            const s = cryptoData.summary;
+            html += `
+                <div style="margin-bottom: 10px; padding: 10px; background: var(--bg-secondary); border-radius: 8px;">
+                    <strong>${symbol}</strong> :
+                    ${s.sales_count} cession(s),
+                    produit ${formatCurrency(s.total_proceeds)},
+                    coût ${formatCurrency(s.total_cost_basis)},
+                    <span class="${s.total_gain >= 0 ? 'positive' : 'negative'}">
+                        PV/MV ${formatCurrency(s.total_gain)}
+                    </span>
+                </div>
+            `;
+        }
+        document.getElementById('crypto-details-consolidated').innerHTML = html || '<p style="color:var(--text-muted);">Aucune cession crypto en 2025</p>';
+    }
+}
+
+function renderRevolut(rev) {
+    const card = document.getElementById('revolut-card');
+    card.style.display = '';
+    const tbody = document.getElementById('revolut-body');
+    tbody.innerHTML = rev.details.map(d => `
+        <tr>
+            <td>${d.label}</td>
+            <td class="text-right ${d.amount === null ? '' : (d.amount >= 0 ? 'positive' : 'negative')}">
+                ${d.amount !== null ? formatCurrency(d.amount) : '<em>en attente</em>'}
+            </td>
+        </tr>
+    `).join('') + `
+        <tr style="font-weight:bold; border-top: 2px solid var(--border-color);">
+            <td>Total pertes devises + frais conversion</td>
+            <td class="text-right negative">${formatCurrency(rev.total_currency_loss + (rev.currency_fees ? -rev.currency_fees : 0))}</td>
+        </tr>
+    `;
+}
+
+function renderFees(fees) {
+    const card = document.getElementById('fees-card');
+    card.style.display = '';
+    const tbody = document.getElementById('fees-body');
+    tbody.innerHTML = `
+        <tr><td>Kucoin — trading fees</td><td class="text-right">${formatCurrency(fees.kucoin_trading)}</td></tr>
+        <tr><td>Kucoin — spread Convert Market (~1%)</td><td class="text-right">${formatCurrency(fees.kucoin_convert_spread)}</td></tr>
+        <tr><td>Kucoin — withdrawal fees</td><td class="text-right">${formatCurrency(fees.kucoin_withdrawal)}</td></tr>
+        <tr><td>Binance</td><td class="text-right">${formatCurrency(fees.binance)}</td></tr>
+        <tr><td>Kraken</td><td class="text-right">${formatCurrency(fees.kraken)}</td></tr>
+        <tr><td>Revolut — fee achat USDT</td><td class="text-right">${formatCurrency(fees.revolut_buy)}</td></tr>
+        <tr><td>Revolut — fees envoi USDT (14 sends)</td><td class="text-right">${formatCurrency(fees.revolut_send)}</td></tr>
+        <tr style="font-weight:bold; border-top: 2px solid var(--border-color);">
+            <td>TOTAL frais</td>
+            <td class="text-right">${formatCurrency(fees.total)}</td>
+        </tr>
+    `;
+}
+
+function renderDonations(donations) {
+    const card = document.getElementById('donations-card');
+    card.style.display = '';
+    const tbody = document.getElementById('donations-body');
+    tbody.innerHTML = donations.associations.map(a => `
+        <tr>
+            <td><strong>${a.name}</strong></td>
+            <td><span style="padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;
+                background: ${a.regime === '75%' ? 'var(--accent-color)' : 'var(--primary-color)'};
+                color: white;">${a.regime} (${a.case})</span></td>
+            <td class="text-right">${formatCurrency(a.total)}</td>
+            <td class="text-right positive">${formatCurrency(a.total * (a.regime === '75%' ? 0.75 : 0.66))}</td>
+        </tr>
+    `).join('') + `
+        <tr style="font-weight:bold; border-top: 2px solid var(--border-color);">
+            <td>TOTAL</td>
+            <td></td>
+            <td class="text-right">${formatCurrency(donations.total)}</td>
+            <td class="text-right positive">${formatCurrency(donations.total_reduction)}</td>
+        </tr>
+    `;
+    document.getElementById('donations-summary').innerHTML = `
+        <div class="stat-card">
+            <div class="label">7UD — Aide aux personnes (75%)</div>
+            <div class="value">${formatCurrency(donations.total_7UD)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">7UF — Autres organismes (66%)</div>
+            <div class="value">${formatCurrency(donations.total_7UF)}</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Réduction totale</div>
+            <div class="value positive"><strong>${formatCurrency(donations.total_reduction)}</strong></div>
+        </div>
+    `;
+}
+
+function renderAccounts(accounts) {
+    const card = document.getElementById('accounts-card');
+    card.style.display = '';
+    const tbody = document.getElementById('accounts-body');
+    tbody.innerHTML = accounts.map(a => `
+        <tr>
+            <td><strong>${a.platform}</strong></td>
+            <td>${a.country}</td>
+            <td>${a.opened}</td>
+            <td>${a.closed || 'Ouvert'}</td>
+            <td class="text-right">${formatCurrency(a.max_value)}</td>
+        </tr>
+    `).join('');
+}
+
+// Auto-load on page ready
+document.addEventListener('DOMContentLoaded', loadConsolidated);
+</script>
+{% endblock %}

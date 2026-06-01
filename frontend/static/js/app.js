@@ -19,12 +19,12 @@ async function apiCall(endpoint, options = {}) {
             ...options
         });
 
+        const json = await response.json();
         if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.error || 'API Error');
+            throw new Error(json.error?.message || json.error || 'API Error');
         }
 
-        return await response.json();
+        return json.data;
     } catch (error) {
         console.error('API Error:', error);
         throw error;

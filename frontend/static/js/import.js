@@ -59,13 +59,14 @@ async function handleFileUpload(file) {
             body: formData
         });
 
-        const result = await response.json();
+        const json = await response.json();
 
-        if (result.success) {
+        if (json.ok) {
+            const result = json.data;
             showToast(`Import reussi : ${result.imported} transactions`, 'success');
             _displayImportResult(result);
         } else {
-            showToast(result.error, 'error');
+            showToast(json.error?.message || json.error, 'error');
         }
     } catch (error) {
         showToast('Erreur lors de l\'import', 'error');

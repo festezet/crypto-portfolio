@@ -38,6 +38,12 @@
                     <span>Fiscal</span>
                 </a>
             </li>
+            <li class="nav-item {% if request.path == '/fiscal/consolidated' %}active{% endif %}">
+                <a href="/fiscal/consolidated">
+                    <span class="icon">🏛️</span>
+                    <span>Récap 2025</span>
+                </a>
+            </li>
             <li class="nav-item {% if request.path == '/import' %}active{% endif %}">
                 <a href="/import">
                     <span class="icon">📥</span>

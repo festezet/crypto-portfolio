@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from flask import Flask, render_template, send_from_directory
 from flask_cors import CORS
+from shared_lib.flask_helpers import error, register_health
 
 from backend.config import (
     SQLALCHEMY_DATABASE_URI,
@@ -50,6 +51,10 @@ def _register_frontend_routes(app):
     def fiscal():
         return render_template('fiscal.html')
 
+    @app.route('/fiscal/consolidated')
+    def fiscal_consolidated():
+        return render_template('fiscal_consolidated.html')
+
     @app.route('/settings')
     def settings():
         return render_template('settings.html')
@@ -69,13 +74,13 @@ def _register_frontend_routes(app):
     @app.errorhandler(404)
     def not_found(e):
         if request.path.startswith('/api/'):
-            return jsonify({'error': 'Not found'}), 404
+            return error(404, 'Not found')
         return render_template('404.html'), 404
 
     @app.errorhandler(500)
     def server_error(e):
         if request.path.startswith('/api/'):
-            return jsonify({'error': 'Internal server error'}), 500
+            return error(500, 'Internal server error')
         return render_template('500.html'), 500
 
 
@@ -98,12 +103,13 @@ def create_app():
     app.register_blueprint(api_ext_bp)
     _ensure_directories()
     _register_frontend_routes(app)
+    register_health(app, 'crypto-portfolio')
 
     return app
 
 
 # Import pour le gestionnaire d'erreurs
-from flask import request, jsonify
+from flask import request
 
 # Créer l'application
 app = create_app()

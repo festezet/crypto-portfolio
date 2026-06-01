@@ -1,8 +1,9 @@
 """
 Routes de l'API REST - Routes principales (portfolio, holdings, transactions, prices, cryptos)
 """
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request
 from datetime import datetime
+from shared_lib.flask_helpers import success, error
 
 from backend.services.portfolio import portfolio_service
 from backend.services.price import price_service
@@ -20,9 +21,9 @@ def get_portfolio():
     """Récupère le résumé du portefeuille"""
     try:
         summary = portfolio_service.get_portfolio_summary()
-        return jsonify(summary)
+        return success(summary)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 @api_bp.route('/portfolio/history', methods=['GET'])
@@ -31,9 +32,9 @@ def get_portfolio_history():
     days = request.args.get('days', 30, type=int)
     try:
         history = portfolio_service.get_portfolio_history(days=days)
-        return jsonify(history)
+        return success(history)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 @api_bp.route('/portfolio/snapshot', methods=['POST'])
@@ -41,9 +42,9 @@ def create_snapshot():
     """Crée un snapshot du portefeuille"""
     try:
         snapshot = portfolio_service.create_snapshot()
-        return jsonify(snapshot.to_dict()), 201
+        return success(snapshot.to_dict(), 201)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 # ============================================================
@@ -55,9 +56,9 @@ def get_holdings():
     """Récupère les positions détaillées"""
     try:
         holdings = portfolio_service.get_holdings()
-        return jsonify(holdings)
+        return success(holdings)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 @api_bp.route('/holdings/<symbol>', methods=['GET'])
@@ -66,10 +67,10 @@ def get_holding(symbol):
     try:
         holding = portfolio_service.get_holding_details(symbol)
         if holding:
-            return jsonify(holding)
-        return jsonify({'error': 'Position not found'}), 404
+            return success(holding)
+        return error(404, 'Position not found')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 # ============================================================
@@ -93,9 +94,9 @@ def get_transactions():
             limit=limit,
             offset=offset
         )
-        return jsonify(result)
+        return success(result)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 @api_bp.route('/transactions', methods=['POST'])
@@ -106,13 +107,13 @@ def add_transaction():
     required = ['symbol', 'type', 'volume', 'price', 'date']
     for field in required:
         if field not in data:
-            return jsonify({'error': f'Missing field: {field}'}), 400
+            return error(400, f'Missing field: {field}')
 
     try:
         tx = portfolio_service.add_transaction(data)
-        return jsonify(tx.to_dict()), 201
+        return success(tx.to_dict(), 201)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 @api_bp.route('/transactions/<int:tx_id>', methods=['PUT'])
@@ -123,10 +124,10 @@ def update_transaction(tx_id):
     try:
         tx = portfolio_service.update_transaction(tx_id, data)
         if tx:
-            return jsonify(tx.to_dict())
-        return jsonify({'error': 'Transaction not found'}), 404
+            return success(tx.to_dict())
+        return error(404, 'Transaction not found')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 @api_bp.route('/transactions/<int:tx_id>', methods=['DELETE'])
@@ -134,10 +135,10 @@ def delete_transaction(tx_id):
     """Supprime une transaction"""
     try:
         if portfolio_service.delete_transaction(tx_id):
-            return jsonify({'success': True})
-        return jsonify({'error': 'Transaction not found'}), 404
+            return success()
+        return error(404, 'Transaction not found')
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 # ============================================================
@@ -156,9 +157,9 @@ def get_prices():
 
     try:
         prices = price_service.get_prices(symbols)
-        return jsonify(prices)
+        return success(prices)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 @api_bp.route('/prices/<symbol>', methods=['GET'])
@@ -167,13 +168,13 @@ def get_price(symbol):
     try:
         price = price_service.get_price(symbol.upper())
         change = price_service.get_price_change_24h(symbol.upper())
-        return jsonify({
+        return success({
             'symbol': symbol.upper(),
             'price': price,
             'change_24h': change
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 # ============================================================
@@ -185,9 +186,9 @@ def get_cryptos():
     """Récupère la liste des cryptos"""
     try:
         cryptos = Crypto.query.all()
-        return jsonify([c.to_dict() for c in cryptos])
+        return success([c.to_dict() for c in cryptos])
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))
 
 
 @api_bp.route('/cryptos', methods=['POST'])
@@ -196,7 +197,7 @@ def add_crypto():
     data = request.get_json()
 
     if 'symbol' not in data:
-        return jsonify({'error': 'Missing symbol'}), 400
+        return error(400, 'Missing symbol')
 
     try:
         crypto = Crypto.get_or_create(
@@ -204,6 +205,6 @@ def add_crypto():
             name=data.get('name'),
             coingecko_id=data.get('coingecko_id')
         )
-        return jsonify(crypto.to_dict()), 201
+        return success(crypto.to_dict(), 201)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return error(500, str(e))

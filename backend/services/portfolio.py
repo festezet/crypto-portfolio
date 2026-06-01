@@ -59,6 +59,7 @@ class PortfolioService:
                     'total_fees': 0,
                     'first_buy_date': None,
                     'exchanges': set(),
+                    'volume_by_exchange': {},
                     'transactions_count': 0
                 }
 
@@ -66,10 +67,25 @@ class PortfolioService:
             h['transactions_count'] += 1
             h['exchanges'].add(tx.exchange)
 
+            # Track volume per exchange for allocation
+            if tx.exchange not in h['volume_by_exchange']:
+                h['volume_by_exchange'][tx.exchange] = 0
+
+            # Transfers only move crypto between exchanges, they don't
+            # change global volume/cost (no P&L impact)
+            if tx.type in ('TRANSFER_IN', 'TRANSFER_OUT'):
+                if tx.type == 'TRANSFER_IN':
+                    h['volume_by_exchange'][tx.exchange] += tx.volume
+                else:
+                    h['volume_by_exchange'][tx.exchange] -= tx.volume
+                h['total_fees'] += tx.fee or 0
+                continue
+
             if tx.is_buy:
                 h['volume'] += tx.volume
                 h['total_cost'] += tx.total
                 h['total_fees'] += tx.fee or 0
+                h['volume_by_exchange'][tx.exchange] += tx.volume
                 if h['first_buy_date'] is None:
                     h['first_buy_date'] = tx.date
 
@@ -80,6 +96,7 @@ class PortfolioService:
                     h['total_cost'] -= sold_cost
                     h['volume'] -= tx.volume
                     h['total_fees'] += tx.fee or 0
+                    h['volume_by_exchange'][tx.exchange] -= tx.volume
 
         return holdings
 
@@ -113,6 +130,7 @@ class PortfolioService:
             'change_24h': round(change_24h, 2) if change_24h else None,
             'first_buy_date': h['first_buy_date'].isoformat() if h['first_buy_date'] else None,
             'exchanges': list(h['exchanges']),
+            'volume_by_exchange': {k: round(v, 8) for k, v in h.get('volume_by_exchange', {}).items() if v > 0.00000001},
             'transactions_count': h['transactions_count']
         }
 
@@ -132,11 +150,15 @@ class PortfolioService:
         total_pnl_net = total_pnl_brut - total_fees
         total_pnl_pct = (total_pnl_brut / total_invested * 100) if total_invested > 0 else 0
 
-        # Répartition par exchange
+        # Répartition par exchange (basée sur le volume réel par exchange)
         exchanges_allocation = defaultdict(float)
         for h in holdings:
-            for exchange in h['exchanges']:
-                exchanges_allocation[exchange] += h['current_value']
+            vbe = h.get('volume_by_exchange', {})
+            total_vol = sum(max(0, v) for v in vbe.values())
+            if total_vol > 0:
+                for exchange, vol in vbe.items():
+                    if vol > 0:
+                        exchanges_allocation[exchange] += h['current_value'] * (vol / total_vol)
 
         # Répartition par crypto (top 10)
         crypto_allocation = [
